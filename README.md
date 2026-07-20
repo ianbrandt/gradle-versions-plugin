@@ -145,6 +145,32 @@ In a multi-project build, running this task in the root project will generate a 
 report for dependency updates in all subprojects. Alternatively, you can run the task separately in
 each subproject to generate separate reports for each subproject.
 
+#### Applying to every project
+
+Under [isolated projects](https://docs.gradle.org/current/userguide/isolated_projects.html) a
+project plugin cannot register a task in another project, so only the projects that apply the
+plugin themselves contribute to the aggregate report. Applying the settings plugin once covers
+every project of the build.
+
+```groovy
+// settings.gradle
+plugins {
+  id 'com.github.ben-manes.versions.settings'
+}
+```
+
+The report is then identical to applying `com.github.ben-manes.versions` to each project. Both
+surfaces may be applied together; the plugin is applied to a project only once.
+
+Two limitations:
+
+- An **included build** is a separate build with its own settings, so its projects are not covered.
+  Apply the settings plugin in each included build's `settings.gradle` to include them. This is not
+  new to the settings plugin, and `buildSrc` is likewise excluded.
+- A project that registers **its own task named `dependencyUpdates`** cannot be covered, because the
+  settings plugin is applied before the project's build script and the task name is then taken.
+  Rename the task, or apply `com.github.ben-manes.versions` per project instead.
+
 #### Revisions
 
 The `revision` task property controls the [Ivy resolution strategy][ivy_resolution_strategy] for determining what constitutes
