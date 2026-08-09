@@ -14,6 +14,7 @@ import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.attributes.Category
 import org.gradle.api.attributes.VerificationType
 import org.gradle.api.file.Directory
+import org.gradle.api.file.FileCollection
 import org.gradle.api.file.RegularFile
 import org.gradle.api.internal.StartParameterInternal
 import org.gradle.api.invocation.Gradle
@@ -29,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
 internal const val PARTIAL_TASK_NAME = "partialDependencyUpdates"
 private const val ELEMENTS_CONFIGURATION = "dependencyUpdatesElements"
 private const val AGGREGATION_CONFIGURATION = "dependencyUpdatesAggregation"
+private const val PUBLISHED_AGGREGATION_CONFIGURATION = "dependencyUpdatesPublishedAggregation"
 private const val PARAMETERS_SERVICE = "dependencyUpdatesParameters"
 private const val VERIFICATION_TYPE = "dependency-updates"
 
@@ -303,14 +305,39 @@ internal fun registerAggregation(
   // `default` configuration, whose artifacts are the project's own and not a partial result. Every
   // module dependency is included rather than the project ones alone, as an included build is
   // declared by its coordinates and substituted onto its project only once the graph resolves.
+  //
+  // Under isolated projects the same dependencies are published as this project's own, so that a
+  // consumer reading its statuses walks into the projects it aggregates and takes the whole report
+  // as one entry. Published as the graph edges rather than as the collected files, which a consumer
+  // holds no lock to resolve from its own build and whose lenient view would read as an empty
+  // report. The edges cost what the artifacts below avoid: a project that shares a group and name
+  // with another in the consumer's graph is merged away by conflict resolution, which the report's
+  // own completeness warning names.
+  val isolated = isIsolatedProjectsEnabled(project)
+  val published =
+    if (isolated) {
+      project.configurations.dependencyScope(PUBLISHED_AGGREGATION_CONFIGURATION) { configuration ->
+        configuration.description =
+          "The projects that this project's dependency update statuses are published with."
+      }
+    } else {
+      null
+    }
+  published?.let { scope ->
+    project.configurations
+      .matching { it.name == ELEMENTS_CONFIGURATION }
+      .configureEach { configuration -> configuration.extendsFrom(scope.get()) }
+  }
   aggregation.get().dependencies.all { dependency ->
-    results.dependencies.add(
-      if (dependency is ModuleDependency) {
-        dependency.copy().apply { targetConfiguration = ELEMENTS_CONFIGURATION }
-      } else {
-        dependency
-      },
-    )
+    for (mirror in listOfNotNull(results.dependencies, published?.get()?.dependencies)) {
+      mirror.add(
+        if (dependency is ModuleDependency) {
+          dependency.copy().apply { targetConfiguration = ELEMENTS_CONFIGURATION }
+        } else {
+          dependency
+        },
+      )
+    }
   }
 
   // Reading the paths across projects is permitted under isolated projects, unlike configuring. A
@@ -339,7 +366,10 @@ internal fun registerAggregation(
   // that a project which publishes no variant is skipped instead of falling back to its `default`
   // configuration, whose artifacts are the project's own and not a partial result to read the
   // report from.
-  for (aggregated in project.allprojects) {
+  //
+  // This project is left out, as what it aggregates is published as its own variant and reading
+  // that back would reach itself through it. Its own result is wired from its producer instead.
+  for (aggregated in project.allprojects.filter { it != project }) {
     project.dependencies.add(
       AGGREGATION_CONFIGURATION,
       project.dependencies.project(
@@ -348,7 +378,7 @@ internal fun registerAggregation(
     )
   }
 
-  if (isIsolatedProjectsEnabled(project)) {
+  if (isolated) {
     // Isolated projects forbids registering a task in another project, so each applies the plugin
     // and the results are collected as artifacts of those dependencies alone. A project that does
     // not apply the plugin has no producer and is omitted, which only a settings plugin could fix;
@@ -372,7 +402,10 @@ internal fun registerAggregation(
         task.legacyPartials.from(project.provider { service.get().legacyPartials() })
       }
     }
-    registerProducer(project, service)
+    // Wired from the producer rather than read back as this project's own variant, which the
+    // aggregation no longer names.
+    val partial = registerProducer(project, service)
+    accumulator.configure { task -> task.partialResults.from(partial.flatMap { it.outputFile }) }
   } else {
     // Swept only here, as the artifacts are the only record of the projects under isolated
     // projects and they omit the ones that conflict resolution merges away, whose own report is
@@ -380,6 +413,12 @@ internal fun registerAggregation(
     // build is left behind rather than risk removing one in use, and is never read, as the results
     // are wired by path rather than discovered.
     accumulator.configure { task -> task.partialsDirectory.set(partialsDirectory) }
+    // Published as this project's own artifacts, so that a consumer naming the build by its
+    // coordinates reads the whole report as one entry. The files are published rather than the
+    // projects as dependencies, so that the consumer gains no graph node for conflict resolution to
+    // merge away, and no configuration of this build has to resolve from the consumer's.
+    val publishable = project.files()
+    publishAggregatedResults(project, publishable)
     // The results are wired as task outputs too, as module conflict resolution would otherwise drop
     // every project that shares a group and name with a sibling from the artifacts.
     project.allprojects { aggregated ->
@@ -395,6 +434,9 @@ internal fun registerAggregation(
         val outputFile = partialsDirectory.map { it.file(partialFileName(aggregated.path)) }
         val partial = registerProducer(aggregated, service, outputFile)
         val legacy = aggregated.layout.buildDirectory.file("dependencyUpdates/partial.json")
+        if (aggregated != project) {
+          publishable.from(partial.flatMap { it.outputFile })
+        }
         accumulator.configure { task ->
           task.partialResults.from(partial.flatMap { it.outputFile })
           task.legacyPartials.from(legacy)
@@ -615,6 +657,27 @@ private fun publishResults(
     }
     configuration.outgoing.artifact(partial.flatMap { it.outputFile })
   }
+}
+
+/**
+ * Publishes the results of the projects that this one aggregates alongside its own, so that a
+ * consumer naming its build by the coordinates it is substituted onto reads that build's whole
+ * report rather than this project alone.
+ *
+ * Registered against the variant lazily, as it is created once the project is evaluated while the
+ * producers are registered as the plugin is applied.
+ */
+private fun publishAggregatedResults(
+  project: Project,
+  publishable: FileCollection,
+) {
+  project.configurations
+    .matching { it.name == ELEMENTS_CONFIGURATION }
+    .configureEach { configuration ->
+      configuration.outgoing.artifacts(project.provider { publishable.files }) { artifact ->
+        artifact.builtBy(publishable)
+      }
+    }
 }
 
 /** Returns the statuses of the project's own configurations, skipping any that fail to resolve. */

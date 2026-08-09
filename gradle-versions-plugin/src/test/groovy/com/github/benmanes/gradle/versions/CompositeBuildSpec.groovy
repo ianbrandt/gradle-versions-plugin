@@ -472,6 +472,189 @@ final class CompositeBuildSpec extends Specification {
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
   }
 
+  def 'Aggregates every project of an included build named by its coordinates'() {
+    given:
+    aggregatedIncludedBuild("dependencyUpdatesAggregation 'com.example:child:1.0'")
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+  }
+
+  def 'Reports a project of an included build once when named with the build it belongs to'() {
+    given:
+    aggregatedIncludedBuild(
+      """
+        dependencyUpdatesAggregation 'com.example:child:1.0'
+        dependencyUpdatesAggregation 'com.example:sub:1.0'
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.count('com.example:jvm-library [1.0 -> 2.0]') == 1
+  }
+
+  // The results are published as the graph edges rather than as the files the aggregate collected,
+  // which Gradle 9 refuses to resolve for a consumer that holds no lock on the included build.
+  // Gradle 9 requires JVM 17.
+  @Requires({ jvm.java17Compatible })
+  @Unroll
+  def 'Aggregates every project of an included build on Gradle #gradleVersion'() {
+    given:
+    aggregatedIncludedBuild("dependencyUpdatesAggregation 'com.example:child:1.0'")
+
+    when:
+    def result = GradleRunner.create()
+      .withGradleVersion(gradleVersion)
+      .withProjectDir(testProjectDir.root)
+      .withArguments('dependencyUpdates')
+      .withPluginClasspath()
+      .build()
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+
+    where:
+    gradleVersion << ['9.0.0', '9.6.1']
+  }
+
+  def 'Aggregates the projects of an included build that share a group and name'() {
+    given:
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') <<
+      """
+        rootProject.name = 'child'
+        include 'a:common', 'b:common'
+      """.stripIndent()
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        allprojects {
+          group = 'com.example'
+          version = '1.0'
+
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+
+          configurations.create('tool') {
+            canBeResolved = true
+            canBeConsumed = false
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child', 'a', 'common')
+    testProjectDir.newFile('child/a/common/build.gradle') <<
+      """
+        dependencies {
+          tool 'com.google.guava:guava:15.0'
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child', 'b', 'common')
+    testProjectDir.newFile('child/b/common/build.gradle') <<
+      """
+        dependencies {
+          tool 'com.example:jvm-library:1.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+  }
+
+  /** Writes a build that aggregates an included build of two projects, each with an update. */
+  private void aggregatedIncludedBuild(String aggregated) {
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          ${aggregated}
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') <<
+      """
+        rootProject.name = 'child'
+        include 'sub'
+      """.stripIndent()
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        allprojects {
+          group = 'com.example'
+          version = '1.0'
+
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+
+          configurations.create('tool') {
+            canBeResolved = true
+            canBeConsumed = false
+          }
+        }
+
+        dependencies {
+          tool 'com.google.guava:guava:15.0'
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child', 'sub')
+    testProjectDir.newFile('child/sub/build.gradle') <<
+      """
+        dependencies {
+          tool 'com.example:jvm-library:1.0'
+        }
+      """.stripIndent()
+  }
+
   def 'Reports the platform that an included build platform imports'() {
     given:
     testProjectDir.newFile('settings.gradle') << "includeBuild 'platforms'"
