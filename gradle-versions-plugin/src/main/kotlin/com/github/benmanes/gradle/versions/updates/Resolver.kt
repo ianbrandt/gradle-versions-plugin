@@ -38,6 +38,7 @@ import org.gradle.api.internal.artifacts.DefaultModuleVersionIdentifier
 import org.gradle.api.internal.artifacts.dependencies.DefaultProjectDependencyConstraint
 import org.gradle.api.specs.Spec
 import java.io.File
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -92,6 +93,11 @@ class Resolver internal constructor(
     }
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
+
+  // Every candidate a dynamic query's component-selection walk offered, as `group:name:version`,
+  // deduped in offer order. Selections run concurrently, so both the set and each drain of it are
+  // synchronized.
+  internal val candidates: MutableSet<String> = Collections.synchronizedSet(LinkedHashSet())
 
   // The platform declarations whose scan threw, so a configuration inheriting the same ones does
   // not repeat a resolution already known to fail. Only a failure is shared: what a scan finds
@@ -267,6 +273,7 @@ class Resolver internal constructor(
     // versions being searched for.
     copy.resolutionStrategy.disableDependencyVerification()
 
+    recordCandidates(copy)
     addDeclaredBoundFilter(copy, current.coordinates)
     addPreReleaseFilter(copy, current.coordinates)
     addRevisionFilter(copy, revision, current.coordinates)
@@ -370,6 +377,22 @@ class Resolver internal constructor(
           @Suppress("UNCHECKED_CAST")
           val value = source.attributes.getAttribute(key as Attribute<Any>)!!
           container.attribute(key, value)
+        }
+      }
+    }
+  }
+
+  /**
+   * Records every candidate a dynamic query offers, before the revision filter or a build's own
+   * `rejectVersionIf` can reject one. Reads only the candidate's version, never its metadata: a
+   * metadata read costs an extra request per candidate that the report does not otherwise need.
+   */
+  private fun recordCandidates(configuration: Configuration) {
+    configuration.resolutionStrategy { strategy ->
+      strategy.componentSelection { rules ->
+        rules.all { selection ->
+          val candidate = selection.candidate
+          candidates.add("${candidate.group}:${candidate.module}:${candidate.version}")
         }
       }
     }

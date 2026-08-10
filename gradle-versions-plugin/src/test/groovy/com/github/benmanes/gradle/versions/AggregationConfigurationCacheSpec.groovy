@@ -151,6 +151,13 @@ final class AggregationConfigurationCacheSpec extends Specification {
     [store, hit].every { it.output.contains('com.google.guava:guava') }
   }
 
+  private List<String> candidatesOf(String projectPath) {
+    def partials = new File(testProjectDir.root, 'build/dependencyUpdates/partials')
+    def matched = partials.listFiles().collect { new JsonSlurper().parse(it) }
+      .find { it.projectPath == projectPath }
+    return matched.candidates as List<String>
+  }
+
   @Unroll
   def 'Honors #hook on the store and on the cache hit'() {
     given:
@@ -387,6 +394,75 @@ final class AggregationConfigurationCacheSpec extends Specification {
     // re-emit, while the report the task writes from the replayed results is unchanged.
     hit.output.contains('Failed to inspect the dependencies of the following configurations')
     report() == stored
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'Records the rejected candidates on the store and replays them on the cache hit'() {
+    given:
+    configure(
+      '''
+        rejectVersionIf {
+          it.candidate.version == '3.1'
+        }
+      ''')
+
+    when:
+    def store = run(ARGUMENTS)
+    def stored = candidatesOf(':app')
+
+    then:
+    store.task(':app:partialDependencyUpdates').outcome == SUCCESS
+    stored.contains('com.google.inject:guice:3.1')
+    store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+
+    when:
+    new File(testProjectDir.root, 'build/dependencyUpdates/partials').deleteDir()
+    def hit = run(ARGUMENTS)
+
+    then:
+    // The recorder runs inside the component-selection rule while the producer's task input is
+    // realized, which happens during the store rather than the hit, so a value that survives the
+    // hit proves it travelled through the frozen task input rather than being recomputed.
+    hit.output.contains('Reusing configuration cache')
+    hit.task(':app:partialDependencyUpdates').outcome == SUCCESS
+    candidatesOf(':app') == stored
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'Does not duplicate a candidate recorded by both the project and buildscript passes'() {
+    given:
+    configure(
+      '''
+        rejectVersionIf {
+          it.candidate.version == '3.1'
+        }
+      ''')
+    // The same module reachable from both the project's own configuration and its buildscript
+    // classpath, so a candidate it offers is a target for each of the two statusesOf passes.
+    new File(testProjectDir.root, 'app/build.gradle') <<
+      """
+        buildscript {
+          repositories {
+            maven {
+              url '${repository.toURI()}'
+            }
+          }
+          dependencies {
+            classpath('com.google.inject:guice:2.0') {
+              transitive = false
+            }
+          }
+        }
+      """.stripIndent()
+
+    when:
+    def result = run(ARGUMENTS)
+    def recorded = candidatesOf(':app')
+
+    then:
+    result.task(':app:partialDependencyUpdates').outcome == SUCCESS
+    recorded.count { it == 'com.google.inject:guice:3.1' } == 1
+    recorded.count { it == 'com.google.inject:guice:3.0' } == 1
   }
 
   def 'Invalidates the cache when a dependency publishes a new version'() {

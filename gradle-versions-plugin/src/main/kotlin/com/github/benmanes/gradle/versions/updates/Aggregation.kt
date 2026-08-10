@@ -560,6 +560,9 @@ private fun registerProducer(
           val skipped = mutableListOf<SkippedInfo>()
           // Shared by both resolutions below, so the deprecation is warned once for the project.
           val onDeprecatedBoundRead = deprecatedBoundWarning(project)
+          // A module resolved by both passes below, as a project dependency also declared on the
+          // buildscript classpath is, would otherwise be recorded twice.
+          val candidates = LinkedHashSet<String>()
           val statuses =
             statusesOf(
               project,
@@ -571,6 +574,7 @@ private fun registerProducer(
               scriptClasspaths = false,
               skipped,
               onDeprecatedBoundRead,
+              candidates,
             )
           val buildscriptStatuses =
             statusesOf(
@@ -589,6 +593,7 @@ private fun registerProducer(
               scriptClasspaths = true,
               skipped,
               onDeprecatedBoundRead,
+              candidates,
             )
           // Warned once the whole project's configurations and script classpaths are known, as the
           // two calls above share this list and a configuration skipped by each would otherwise be
@@ -600,6 +605,7 @@ private fun registerProducer(
             statuses,
             buildscriptStatuses,
             skipped,
+            candidates.toList(),
           ).toJson()
         },
       )
@@ -691,6 +697,7 @@ private fun statusesOf(
   scriptClasspaths: Boolean,
   skipped: MutableList<SkippedInfo>,
   onDeprecatedBoundRead: () -> Unit,
+  candidates: MutableSet<String>,
 ): List<PartialStatus> {
   if (configurations.isEmpty()) {
     return emptyList()
@@ -711,28 +718,35 @@ private fun statusesOf(
   // dependencies while configuring has already run them, which the discount below corrects for.
   val declaredKeys =
     configurations.associateWith { runCatching { resolver.declaredKeys(it) }.getOrDefault(emptySet()) }
-  return configurations.flatMap { configuration ->
-    try {
-      // Discounted after resolving, which is what runs the default actions that name the
-      // configurations whose every dependency a plugin contributed.
-      resolver.resolve(configuration, parameters.revision, nameDeclaringConfiguration, scriptClasspaths) {
-        declaredKeys.getValue(configuration) - keysOf(configuration, filledByPlugin)
-      }.filter { status ->
-        // A status with no configuration name, which is what an ordinary declaration produces,
-        // is kept whatever the filter rejects.
-        status.configurations.isEmpty() ||
-          status.configurations.any { parameters.filterDeclaredConfigurations.isSatisfiedBy(it) }
-      }.map { it.toPartialStatus() }
-    } catch (e: Exception) {
-      val reason =
-        generateSequence(e as Throwable) { it.cause }.take(MAX_FAILURE_CAUSES).joinToString("; ") { it.toString() }
-      // The default-visible warning is grouped and emitted once the project's whole set of skipped
-      // configurations is known, so only the stack trace is logged here.
-      project.logger.info("Skipping configuration ${project.path}:${configuration.name}", e)
-      skipped.add(SkippedInfo(configuration.name, reason))
-      emptyList()
+  val statuses =
+    configurations.flatMap { configuration ->
+      try {
+        // Discounted after resolving, which is what runs the default actions that name the
+        // configurations whose every dependency a plugin contributed.
+        resolver.resolve(configuration, parameters.revision, nameDeclaringConfiguration, scriptClasspaths) {
+          declaredKeys.getValue(configuration) - keysOf(configuration, filledByPlugin)
+        }.filter { status ->
+          // A status with no configuration name, which is what an ordinary declaration
+          // produces, is kept whatever the filter rejects.
+          status.configurations.isEmpty() ||
+            status.configurations.any { parameters.filterDeclaredConfigurations.isSatisfiedBy(it) }
+        }.map { it.toPartialStatus() }
+      } catch (e: Exception) {
+        val reason =
+          generateSequence(e as Throwable) { it.cause }.take(MAX_FAILURE_CAUSES).joinToString("; ") { it.toString() }
+        // The default-visible warning is grouped and emitted once the project's whole set of skipped
+        // configurations is known, so only the stack trace is logged here.
+        project.logger.info("Skipping configuration ${project.path}:${configuration.name}", e)
+        skipped.add(SkippedInfo(configuration.name, reason))
+        emptyList()
+      }
     }
+  // Held while draining, as a synchronized set only synchronizes its own methods and copying one
+  // into a set iterates it.
+  synchronized(resolver.candidates) {
+    candidates.addAll(resolver.candidates)
   }
+  return statuses
 }
 
 /**

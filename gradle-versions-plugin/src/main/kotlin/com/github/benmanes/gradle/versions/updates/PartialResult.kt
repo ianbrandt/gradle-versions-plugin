@@ -144,6 +144,8 @@ data class PartialResult
     val statuses: List<PartialStatus>,
     val buildscriptStatuses: List<PartialStatus>,
     val skipped: List<SkippedInfo> = emptyList(),
+    /** Every candidate version a dynamic query offered, as `group:name:version`. */
+    val candidates: List<String> = emptyList(),
   ) {
     fun toJson(): String = adapter.toJson(this)
 
@@ -156,7 +158,7 @@ data class PartialResult
       projectPath: String = this.projectPath,
       statuses: List<PartialStatus> = this.statuses,
       buildscriptStatuses: List<PartialStatus> = this.buildscriptStatuses,
-    ): PartialResult = copy(formatVersion, projectPath, statuses, buildscriptStatuses, skipped)
+    ): PartialResult = copy(formatVersion, projectPath, statuses, buildscriptStatuses, skipped, candidates)
 
     companion object {
       /**
