@@ -397,7 +397,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
-  def 'Records the rejected candidates on the store and replays them on the cache hit'() {
+  def 'Records the complete candidate listing on the store, verdict and facts together, and replays it on the cache hit'() {
     given:
     configure(
       '''
@@ -412,7 +412,11 @@ final class AggregationConfigurationCacheSpec extends Specification {
 
     then:
     store.task(':app:partialDependencyUpdates').outcome == SUCCESS
-    stored.contains('com.google.inject:guice:3.1')
+    // The facts carry every listed version, including the one the build's own rejectVersionIf
+    // rejects, while the verdict the report shows is still the first-accept walk's own choice.
+    stored as Set == ['com.google.inject:guice:3.1', 'com.google.inject:guice:3.0',
+                       'com.google.inject:guice:2.2', 'com.google.inject:guice:2.1',
+                       'com.google.inject:guice:2.0', 'com.google.inject:guice:1.0'] as Set
     store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
 
     when:
@@ -422,10 +426,32 @@ final class AggregationConfigurationCacheSpec extends Specification {
     then:
     // The recorder runs inside the component-selection rule while the producer's task input is
     // realized, which happens during the store rather than the hit, so a value that survives the
-    // hit proves it travelled through the frozen task input rather than being recomputed.
+    // hit proves it travelled through the frozen task input rather than being recomputed. Complete
+    // recording is 100x the payload of the prefix R60.1 shipped, so this also proves that scale
+    // survives the cache.
     hit.output.contains('Reusing configuration cache')
     hit.task(':app:partialDependencyUpdates').outcome == SUCCESS
-    candidatesOf(':app') == stored
+    candidatesOf(':app') as Set == stored as Set
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'Records nothing for a module reachable only through a configuration filterConfigurations rejects'() {
+    given:
+    configure(
+      '''
+        filterConfigurations {
+          !it.name.toLowerCase().contains('test')
+        }
+      ''')
+
+    when:
+    def result = run(ARGUMENTS)
+
+    then:
+    result.task(':lib:partialDependencyUpdates').outcome == SUCCESS
+    // guava is declared on lib's testImplementation, which the filter excludes before a
+    // configuration is ever handed to the resolver.
+    !candidatesOf(':lib').any { it.startsWith('com.google.guava:') }
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')

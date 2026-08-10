@@ -152,6 +152,7 @@ class Resolver internal constructor(
     val current = getCurrentCoordinates(configuration, declaredKeys(), nameDeclaringConfiguration, scriptClasspath)
     val latestConfiguration = createLatestConfiguration(configuration, revision, current)
     val root = latestConfiguration.incoming.resolutionResult.root
+    recordAllCandidates(configuration, current)
     return getStatus(current, root)
   }
 
@@ -200,26 +201,7 @@ class Resolver internal constructor(
     revision: String,
     current: CurrentCoordinates,
   ): Configuration {
-    val latest =
-      configuration.allDependencies
-        .filterIsInstance<ExternalDependency>()
-        .mapTo(mutableListOf()) { dependency ->
-          createQueryDependency(dependency as ModuleDependency, current.substitutions)
-        }
-
-    // Common use case for dependency constraints is a java-platform BOM project or to control
-    // version of transitive dependency.
-    if (supportsConstraints(configuration)) {
-      for (dependency in configuration.allDependencyConstraints) {
-        if (dependency !is DefaultProjectDependencyConstraint) {
-          latest.add(createQueryDependency(dependency))
-        }
-      }
-    }
-
-    for (source in current.platformSources) {
-      latest.add(createPlatformQueryDependency(source))
-    }
+    val latest = queryDependencies(configuration, current)
 
     val copy = configuration.copyRecursive().setTransitive(false)
 
@@ -273,7 +255,6 @@ class Resolver internal constructor(
     // versions being searched for.
     copy.resolutionStrategy.disableDependencyVerification()
 
-    recordCandidates(copy)
     addDeclaredBoundFilter(copy, current.coordinates)
     addPreReleaseFilter(copy, current.coordinates)
     addRevisionFilter(copy, revision, current.coordinates)
@@ -282,6 +263,75 @@ class Resolver internal constructor(
 
     disableAutoTargetJvm(copy)
     return copy
+  }
+
+  /** Returns the `+` query dependencies used to resolve the configuration's latest versions. */
+  private fun queryDependencies(
+    configuration: Configuration,
+    current: CurrentCoordinates,
+  ): MutableList<Dependency> {
+    val latest =
+      configuration.allDependencies
+        .filterIsInstance<ExternalDependency>()
+        .mapTo(mutableListOf()) { dependency ->
+          createQueryDependency(dependency as ModuleDependency, current.substitutions)
+        }
+
+    // Common use case for dependency constraints is a java-platform BOM project or to control
+    // version of transitive dependency.
+    if (supportsConstraints(configuration)) {
+      for (dependency in configuration.allDependencyConstraints) {
+        if (dependency !is DefaultProjectDependencyConstraint) {
+          latest.add(createQueryDependency(dependency))
+        }
+      }
+    }
+
+    for (source in current.platformSources) {
+      latest.add(createPlatformQueryDependency(source))
+    }
+    return latest
+  }
+
+  /**
+   * Resolves a policy-free copy of the configuration that queries the same dynamic versions as
+   * [createLatestConfiguration] but rejects every candidate a component-selection walk offers, so
+   * [recordCandidates] observes the complete listing rather than the prefix a first-accept walk
+   * reaches. Built from a detached configuration rather than [Configuration.copyRecursive], which
+   * would carry over the source configuration's own `resolutionStrategy`: a build-script `force`,
+   * `eachDependency`, or `componentSelection` rule would then shape the facts before the recording
+   * rule ever sees the rejected candidates. Carries neither the revision filter nor the build's own
+   * `resolutionStrategy`: facts are policy-free by definition, and a metadata-reading user predicate
+   * must never turn this walk into the far more expensive per-candidate-fetch shape those add. The
+   * resolved result is discarded; a rejected candidate surfaces as an `UnresolvedDependencyResult`
+   * inside it, never as a thrown exception, the same tolerance [getStatus] already relies on for the
+   * first-accept walk.
+   */
+  private fun recordAllCandidates(
+    configuration: Configuration,
+    current: CurrentCoordinates,
+  ) {
+    // Detached from the container the configuration itself belongs to, as a buildscript's
+    // classpath resolves against the buildscript's repositories rather than the project's.
+    val container =
+      if (project.buildscript.configurations.contains(configuration)) {
+        project.buildscript.configurations
+      } else {
+        project.configurations
+      }
+    val copy = container.detachedConfiguration().setTransitive(false)
+    if (asBoolean(
+        getMetaClass(copy.resolutionStrategy)
+          .hasProperty(copy.resolutionStrategy, "failOnDynamicVersions"),
+      )
+    ) {
+      getMetaClass(copy.resolutionStrategy)
+        .setProperty(copy.resolutionStrategy, "failOnDynamicVersions", false)
+    }
+    copy.dependencies.addAll(queryDependencies(configuration, current))
+    copy.resolutionStrategy.deactivateDependencyLocking()
+    recordCandidates(copy)
+    copy.incoming.resolutionResult.root
   }
 
   /** Returns a variant of the provided dependency used for querying the latest version.  */
@@ -383,9 +433,10 @@ class Resolver internal constructor(
   }
 
   /**
-   * Records every candidate a dynamic query offers, before the revision filter or a build's own
-   * `rejectVersionIf` can reject one. Reads only the candidate's version, never its metadata: a
-   * metadata read costs an extra request per candidate that the report does not otherwise need.
+   * Records every candidate a dynamic query offers and rejects it, so the walk keeps going rather
+   * than stopping at the first one Gradle would otherwise accept. Reads only the candidate's
+   * version, never its metadata: a metadata read costs an extra request per candidate that the
+   * facts do not otherwise need.
    */
   private fun recordCandidates(configuration: Configuration) {
     configuration.resolutionStrategy { strategy ->
@@ -393,6 +444,7 @@ class Resolver internal constructor(
         rules.all { selection ->
           val candidate = selection.candidate
           candidates.add("${candidate.group}:${candidate.module}:${candidate.version}")
+          selection.reject("Recorded as a fact; rejected so the walk records every candidate")
         }
       }
     }

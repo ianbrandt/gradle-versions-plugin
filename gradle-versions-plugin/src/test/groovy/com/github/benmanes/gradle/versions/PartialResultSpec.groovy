@@ -1,5 +1,6 @@
 package com.github.benmanes.gradle.versions
 
+import com.github.benmanes.gradle.versions.updates.ConstraintInfo
 import com.github.benmanes.gradle.versions.updates.PartialResult
 import com.github.benmanes.gradle.versions.updates.PartialResultKt
 import com.github.benmanes.gradle.versions.updates.PartialStatus
@@ -209,6 +210,54 @@ final class PartialResultSpec extends Specification {
 
     then:
     thrown(IllegalArgumentException)
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'A v1 partial reads with no recorded candidates and no constraints'() {
+    given:
+    def json = '''
+      {"formatVersion":1,"projectPath":":","statuses":[{"group":"com.google.guava",
+      "name":"guava","declaredVersion":"1.0","latestVersion":"1.0"}],"buildscriptStatuses":[]}
+      '''.stripIndent()
+
+    when:
+    def decoded = PartialResult.fromJson(json)
+
+    then:
+    decoded.candidates == []
+    decoded.statuses[0].constraint == null
+    decoded.statuses[0].platformConstraints == []
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'Rejects a format version this reader does not know yet'() {
+    given:
+    def json = new PartialResult(PartialResult.FORMAT_VERSION + 1, ':', [], []).toJson()
+
+    when:
+    PartialResult.fromJson(json)
+
+    then:
+    thrown(IllegalArgumentException)
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'The declared and platform-supplied constraints survive the round trip'() {
+    given:
+    def declared = new ConstraintInfo('[1.0,2.0)', '1.5', '1.8', ['1.9'])
+    def platform = new ConstraintInfo('1.0', '', '', [])
+    def status = new PartialStatus('com.google.guava', 'guava', '1.0', null, '1.0', null, null, false,
+      [], null, [], declared, [platform])
+    def result = new PartialResult(PartialResult.FORMAT_VERSION, ':', [status], [])
+
+    when:
+    def json = result.toJson()
+    def decoded = PartialResult.fromJson(json)
+
+    then:
+    decoded == result
+    decoded.statuses[0].constraint == declared
+    decoded.statuses[0].platformConstraints == [platform]
   }
 
   @Unroll

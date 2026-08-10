@@ -3,6 +3,14 @@ package com.github.benmanes.gradle.versions.updates
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
+/** A declared `VersionConstraint`, serialized as its four getters verbatim; empty when unset. */
+data class ConstraintInfo(
+  val required: String,
+  val strict: String,
+  val preferred: String,
+  val rejected: List<String>,
+)
+
 /** One dependency's status, as observed by a single project. */
 data class PartialStatus
   @JvmOverloads
@@ -38,6 +46,10 @@ data class PartialStatus
      * the whole report rather than about the project whose producer wrote this status.
      */
     @Transient val splitByLatest: Boolean = false,
+    /** The constraint the declaration stated, null when no declaration named this module. */
+    val constraint: ConstraintInfo? = null,
+    /** The constraints the platforms this module's consumer depends on state for it. */
+    val platformConstraints: List<ConstraintInfo> = emptyList(),
   ) {
     val coordinate: Coordinate
       get() = Coordinate(group, name, declaredVersion, userReason, divergentLatest)
@@ -114,6 +126,28 @@ data class PartialStatus
         group, name, declaredVersion, userReason, latestVersion, projectUrl, unresolved, contributed,
         configurations, projectPath, platformProjects, constrainedBy, splitByLatest,
       )
+
+    /**
+     * Keeps the `copy` v0.61.0 shipped callable, which the generated one no longer is now that the
+     * declared and platform constraints moved it past eleven parameters.
+     */
+    fun copy(
+      group: String = this.group,
+      name: String = this.name,
+      declaredVersion: String = this.declaredVersion,
+      userReason: String? = this.userReason,
+      latestVersion: String = this.latestVersion,
+      projectUrl: String? = this.projectUrl,
+      unresolved: UnresolvedInfo? = this.unresolved,
+      contributed: Boolean = this.contributed,
+      configurations: List<String> = this.configurations,
+      projectPath: String? = this.projectPath,
+      platformProjects: List<String> = this.platformProjects,
+    ): PartialStatus =
+      copy(
+        group, name, declaredVersion, userReason, latestVersion, projectUrl, unresolved, contributed,
+        configurations, projectPath, platformProjects, constraint, platformConstraints,
+      )
   }
 
 /** A resolution failure, as a value that survives the project boundary. */
@@ -163,9 +197,10 @@ data class PartialResult
     companion object {
       /**
        * Bumped when the shape changes incompatibly; a field with a compatible default reads from an
-       * older partial as that default.
+       * older partial as that default. 2 records every candidate a dynamic query offers rather than
+       * only the accepted one, plus the declared and platform-supplied constraints.
        */
-      const val FORMAT_VERSION: Int = 1
+      const val FORMAT_VERSION: Int = 2
 
       private val adapter =
         Moshi.Builder()
@@ -177,8 +212,8 @@ data class PartialResult
       @JvmStatic
       fun fromJson(json: String): PartialResult {
         val result = requireNotNull(adapter.fromJson(json)) { "Empty partial result" }
-        require(result.formatVersion == FORMAT_VERSION) {
-          "Unsupported partial result format ${result.formatVersion}, expected $FORMAT_VERSION; re-run the build"
+        require(result.formatVersion in 1..FORMAT_VERSION) {
+          "Unsupported partial result format ${result.formatVersion}, expected 1..$FORMAT_VERSION; re-run the build"
         }
         return result
       }

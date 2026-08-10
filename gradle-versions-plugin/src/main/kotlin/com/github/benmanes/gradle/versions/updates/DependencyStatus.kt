@@ -1,5 +1,6 @@
 package com.github.benmanes.gradle.versions.updates
 
+import org.gradle.api.artifacts.VersionConstraint
 import org.gradle.api.artifacts.component.ModuleComponentSelector
 import org.gradle.api.artifacts.result.UnresolvedDependencyResult
 
@@ -87,6 +88,8 @@ class DependencyStatus {
       configurations,
       platformProjects = coordinate.platformProjects,
       constrainedBy = coordinate.constrainedBy,
+      constraint = coordinate.versionConstraint?.toConstraintInfo(),
+      platformConstraints = coordinate.platformVersionConstraints.map { it.toConstraintInfo() },
     )
   }
 
@@ -95,3 +98,7 @@ class DependencyStatus {
     const val MAX_FAILURE_CAUSES = 20
   }
 }
+
+/** Returns the constraint's four getters verbatim, as a value that survives the project boundary. */
+private fun VersionConstraint.toConstraintInfo(): ConstraintInfo =
+  ConstraintInfo(requiredVersion, strictVersion, preferredVersion, rejectedVersions.toList())
