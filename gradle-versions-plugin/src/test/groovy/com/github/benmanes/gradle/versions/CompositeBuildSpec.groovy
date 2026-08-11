@@ -2235,4 +2235,84 @@ final class CompositeBuildSpec extends Specification {
     included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '3.0-Beta1'
     json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '2.0'
   }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A merged row never overrules the outer's own verdict for a coordinate it declares too"() {
+    given: 'both builds declare guava, and only the outer rejects the release candidate'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+          tool 'com.google.guava:guava:15.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version.contains('-rc')
+          }
+        }
+      """.stripIndent()
+    includedBuild(
+      'child',
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        configurations.maybeCreate('default')
+        afterEvaluate {
+          artifacts.add('default', file('child.jar'))
+        }
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.google.guava:guava:15.0'
+        }
+      """.stripIndent(),
+    )
+    testProjectDir.newFile('child/child.jar')
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+
+    then: "the child's unfiltered candidate is judged by the outer's rule, so the row stays up to date"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    json.outdated.dependencies.every { it.name != 'guava' }
+    json.current.dependencies.find { it.name == 'guava' }?.version == '15.0'
+    !result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+  }
 }
