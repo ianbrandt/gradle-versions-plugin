@@ -412,4 +412,19 @@ final class JudgeSpec extends Specification {
     then:
     order == ['first', 'second']
   }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'Walks by version order rather than the order the repositories were recorded in'() {
+    given: 'a listing recorded per repository, so the verdict trails candidates older than it'
+    def status = statusOf('com.example', 'widget', '1.0', '3.0-Beta1')
+    def candidates =
+      [':': ['com.example:widget:2.0', 'com.example:widget:1.0', 'com.example:widget:3.0-Beta1']]
+
+    when:
+    def judged = judge([status], candidates, null, 'release', true)
+
+    then: 'the walk steps to the newest candidate below the verdict, not to the end of the list'
+    judged[0].latestVersion == '2.0'
+    judged[0].unresolved == null
+  }
 }

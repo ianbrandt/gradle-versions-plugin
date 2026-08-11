@@ -66,6 +66,9 @@ class VersionMapping(private val logger: Logger, statuses: List<PartialStatus>) 
   companion object {
     private fun makeVersionComparator(): Comparator<String> = versionComparator(VersionParser())
 
+    /** Returns the comparator that orders two version strings as Gradle's own resolution does. */
+    internal fun versionComparator(): Comparator<String> = makeVersionComparator()
+
     /** Orders version strings the way dependency resolution orders them, through the given parser. */
     internal fun versionComparator(versionParser: VersionParser): Comparator<String> {
       val baseComparator = DefaultVersionComparator().asVersionComparator()

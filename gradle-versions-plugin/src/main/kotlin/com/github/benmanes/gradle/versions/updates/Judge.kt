@@ -93,7 +93,14 @@ internal class Judge(
     }
     val candidates = status.projectPath?.let { candidatesByProjectPath[it] }.orEmpty()
     val prefix = "${status.group}:${status.name}:"
-    val moduleCandidates = candidates.filter { it.startsWith(prefix) }
+    // Sorted rather than taken as recorded: a candidate is recorded as the repository it came from
+    // offers it, so a module found in more than one repository is recorded newest-first per
+    // repository rather than newest-first overall, and the verdict can trail candidates older than
+    // itself. The walk below reads position as age, so it has to be given an order that says so.
+    val moduleCandidates =
+      candidates
+        .filter { it.startsWith(prefix) }
+        .sortedWith(compareByDescending(VersionMapping.versionComparator()) { it.substring(prefix.length) })
     val ceilingIndex = moduleCandidates.indexOf("$prefix${status.latestVersion}")
     if (ceilingIndex < 0) {
       return status
