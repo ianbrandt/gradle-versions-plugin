@@ -427,4 +427,29 @@ final class JudgeSpec extends Specification {
     judged[0].latestVersion == '2.0'
     judged[0].unresolved == null
   }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'A candidate the report cannot judge never restores a verdict its own revision rejected'() {
+    given: 'the opt-in rejects the verdict, and a rule then reads the metadata the record cannot carry'
+    def status = statusOf('com.example', 'widget', '1.0', '3.0-Beta1')
+    def candidates =
+      [':': ['com.example:widget:3.0-Beta1', 'com.example:widget:2.0']]
+    def strategy = { ResolutionStrategyWithCurrent rs ->
+      rs.componentSelection { rules ->
+        rules.all { selection ->
+          if (selection.metadata == null) {
+            selection.reject('rejected on the metadata the record does not carry')
+          }
+        }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = judge([status], candidates, strategy, 'release', true)
+
+    then: 'the row is reported unresolved rather than at the pre-release the opt-in ruled out'
+    judged[0].latestVersion == 'none'
+    judged[0].unresolved.selectorVersion == '3.0-Beta1'
+    judged[0].unresolved.failureText == 'Rejected by revision release'
+  }
 }

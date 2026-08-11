@@ -120,6 +120,7 @@ internal class Judge(
     // synthesized UnresolvedInfo is always the ceiling, so the reason reported must answer why
     // that named version was rejected, not why some older candidate further down the walk was.
     var ceilingReason: String? = null
+    var revisionRejectedCeiling = false
     for (index in ceilingIndex until moduleCandidates.size) {
       val version = moduleCandidates[index].substring(prefix.length)
       // Below the ceiling the report's own revision is all there is to hold a candidate to, as the
@@ -129,6 +130,7 @@ internal class Judge(
       if ((checkVersionStability || index > ceilingIndex) && !accepted(status, version)) {
         if (index == ceilingIndex) {
           ceilingReason = "Rejected by revision $revision"
+          revisionRejectedCeiling = true
         }
         continue
       }
@@ -140,9 +142,11 @@ internal class Judge(
       // A rule that rejected on the metadata the record does not carry judged the record rather
       // than the candidate, and nothing distinguishes the candidates below it from that same
       // answer, so the row is left as the build that resolved it reported it. Continuing the walk
-      // would offer a version this build's own rules had already rejected above.
+      // would offer a version this build's own rules had already rejected above. The exception is a
+      // verdict the report's own revision rejected: the opt-in exists to keep that version out of
+      // the report, so falling back to it would answer the opposite of what the build asked for.
       if (shim.unjudged) {
-        return status
+        return if (revisionRejectedCeiling) unresolvedRow(status, ceilingReason) else status
       }
       if (!shim.rejected) {
         return if (version == status.latestVersion) status else status.copy(latestVersion = version)
@@ -151,7 +155,15 @@ internal class Judge(
         ceilingReason = shim.reason
       }
     }
-    return status.copy(
+    return unresolvedRow(status, ceilingReason)
+  }
+
+  /** Returns [status] as a row no version satisfied, named for why its verdict was rejected. */
+  private fun unresolvedRow(
+    status: PartialStatus,
+    ceilingReason: String?,
+  ): PartialStatus =
+    status.copy(
       latestVersion = "none",
       unresolved =
         UnresolvedInfo(
@@ -164,7 +176,6 @@ internal class Judge(
           status.userReason,
         ),
     )
-  }
 
   /**
    * Returns whether the report's own revision accepts [version] for [status], exempting the version
