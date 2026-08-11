@@ -8,6 +8,7 @@ import org.gradle.testkit.runner.GradleRunner
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import spock.lang.Issue
+import spock.lang.PendingFeature
 import spock.lang.Requires
 import spock.lang.Specification
 import spock.lang.Unroll
@@ -1740,6 +1741,73 @@ final class CompositeBuildSpec extends Specification {
     hit.output.contains('Reusing configuration cache')
     hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
     !hit.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  // The report's revision filter reads a status that a recorded candidate has no metadata to carry,
+  // so it accepts everything the walk reaches below the ceiling. Closed by redefining revision as a
+  // predicate over the version string, which is the only form the report can apply to a record.
+  @PendingFeature
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's report offers no candidate its own revision rejects"() {
+    given: 'a listing whose integration version sits below the release the child resolved'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.0'
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.example:snapshot-interleaved:1.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+    def offered = json.outdated.dependencies.find { it.name == 'snapshot-interleaved' }
+    def unchanged = json.current.dependencies.find { it.name == 'snapshot-interleaved' }
+
+    then: 'the row is reported, and never at the integration version a milestone report rejects'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    (offered != null) || (unchanged != null)
+    offered?.available?.milestone != '2.5-SNAPSHOT'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
