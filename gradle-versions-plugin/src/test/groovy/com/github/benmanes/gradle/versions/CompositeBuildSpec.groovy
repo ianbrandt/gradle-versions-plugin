@@ -2118,4 +2118,121 @@ final class CompositeBuildSpec extends Specification {
     json.current.dependencies.find { it.name == 'log4j-core' }?.version == '2.16.0'
     !json.outdated.dependencies*.name.contains('log4j-core')
   }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
+  def "-DcheckVersionStability with no task property reaches an included build's own producer"() {
+    given: 'the outer aggregates the child, but neither build sets checkVersionStability as a task property'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.probe:unstable-ceiling:1.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates',
+      '-DoutputFormatter=plain,json', '-Drevision=release', '-DcheckVersionStability')
+    def included = report('child/')
+
+    then: "the child's own producer baked the stable ceiling, not the pre-release its metadata check alone accepts"
+    result.task(':child:dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '2.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
+  def "An opted-in aggregator tightens a merged row whose non-opted-in child baked an unstable ceiling"() {
+    given: "the child leaves checkVersionStability off, so its own producer bakes the pre-release ceiling"
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkVersionStability = true
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.probe:unstable-ceiling:1.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates',
+      '-DoutputFormatter=plain,json', '-Drevision=release')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the child's own report bakes the pre-release ceiling, but the merged row is tightened by the outer's opt-in"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.task(':child:dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '3.0-Beta1'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '2.0'
+  }
 }
