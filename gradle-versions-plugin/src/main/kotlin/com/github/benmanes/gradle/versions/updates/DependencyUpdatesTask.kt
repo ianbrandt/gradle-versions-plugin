@@ -436,7 +436,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     // slot that survives it answers where the live property is gone.
     val strategy: Action<in ResolutionStrategyWithCurrent>? =
       parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
-    val judge = Judge(strategy, logger)
+    val judge = Judge(strategy, logger, revision, false)
     val projectRows =
       partials.flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } }
     val buildscriptRows =

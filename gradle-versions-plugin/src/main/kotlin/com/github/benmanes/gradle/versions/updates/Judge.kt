@@ -17,6 +17,11 @@ import org.gradle.api.logging.Logger
  * task judges the rows beneath it by its own rules, so an outer build's `rejectVersionIf` governs a
  * row merged in from an included build, not only the rows it resolved itself.
  *
+ * The report's own [revision] holds every candidate the walk reaches below the ceiling, as
+ * [VersionStability] over the version string rather than the status a record has no metadata to
+ * carry. Under [checkVersionStability] it holds the ceiling as well, which is what lets a report
+ * redefine the revision for rows a build that did not opt in produced.
+ *
  * A row moved below its verdict offers a version that satisfied both builds' rules but that no
  * resolution proved usable, unlike the version the producing build accepted and resolved: the
  * candidates are a repository listing, and a version can pass version selection and still fail
@@ -25,6 +30,8 @@ import org.gradle.api.logging.Logger
 internal class Judge(
   resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
   logger: Logger,
+  private val revision: String,
+  private val checkVersionStability: Boolean,
 ) {
   private val collector = CollectingComponentSelectionRules()
   private val currentHolder = mutableMapOf<Coordinate.Key, Coordinate>()
@@ -34,7 +41,7 @@ internal class Judge(
    * once per pass, so a rule with a side effect of its own has it as often as the build that
    * resolved with it would.
    */
-  private val applicable: Boolean =
+  private val hasRules: Boolean =
     if (resolutionStrategy == null) {
       false
     } else {
@@ -57,6 +64,9 @@ internal class Judge(
         false
       }
     }
+
+  /** Whether the report has anything of its own to say about a row, rules or the revision guard. */
+  private val applicable: Boolean = checkVersionStability || hasRules
 
   /**
    * Returns [statuses] with each resolved row's `latestVersion` capped to the newest candidate the
@@ -105,6 +115,16 @@ internal class Judge(
     var ceilingReason: String? = null
     for (index in ceilingIndex until moduleCandidates.size) {
       val version = moduleCandidates[index].substring(prefix.length)
+      // Below the ceiling the report's own revision is all there is to hold a candidate to, as the
+      // record carries no status. At the ceiling it applies only under the opt-in, so a build that
+      // did not ask for it keeps the verdict its own resolution baked. A guard rejection is never
+      // an unjudged one: only the version string is read, which every record carries.
+      if ((checkVersionStability || index > ceilingIndex) && !accepted(status, version)) {
+        if (index == ceilingIndex) {
+          ceilingReason = "Rejected by revision $revision"
+        }
+        continue
+      }
       val shim = RecordedComponentSelection(status.group, status.name, version)
       for (rule in rules) {
         if (shim.rejected || shim.unjudged) break
@@ -138,6 +158,16 @@ internal class Judge(
         ),
     )
   }
+
+  /**
+   * Returns whether the report's own revision accepts [version] for [status], exempting the version
+   * the build already declares so that a row is never held back from the release it is already on.
+   * https://github.com/ben-manes/gradle-versions-plugin/issues/475
+   */
+  private fun accepted(
+    status: PartialStatus,
+    version: String,
+  ): Boolean = version == status.declaredVersion || VersionStability.accepts(revision, version)
 
   /** Rebuilds the constraint the four serialized strings captured; `branch` is not serialized. */
   private fun ConstraintInfo.toVersionConstraint(): VersionConstraint =

@@ -19,8 +19,9 @@ final class JudgeSpec extends Specification {
   private static final def LOGGER = Logging.getLogger(JudgeSpec)
 
   private static List<PartialStatus> judge(
-    List<PartialStatus> statuses, Map<String, List<String>> candidates, Action strategy) {
-    return new Judge(strategy, LOGGER).judge(statuses, candidates)
+    List<PartialStatus> statuses, Map<String, List<String>> candidates, Action strategy,
+    String revision = 'milestone', boolean checkVersionStability = false) {
+    return new Judge(strategy, LOGGER, revision, checkVersionStability).judge(statuses, candidates)
   }
 
   private static PartialStatus statusOf(
@@ -302,6 +303,94 @@ final class JudgeSpec extends Specification {
 
     then:
     executions == 1
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
+  def 'Offers no integration candidate below the ceiling under a milestone revision'() {
+    given: 'a listing whose snapshot sits between the rejected ceiling and the release below it'
+    def status = statusOf('com.example', 'widget', '1.0', '3.0')
+    def candidates = [
+      ':': ['com.example:widget:3.0', 'com.example:widget:2.5-SNAPSHOT', 'com.example:widget:2.0'],
+    ]
+
+    when:
+    def judged = judge([status], candidates, rejecting('3.0'), 'milestone')
+
+    then: 'the walk steps over the snapshot that a milestone report may not offer'
+    judged[0].latestVersion == '2.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/798')
+  def 'Offers no prerelease candidate below the ceiling under a release revision'() {
+    given: 'a beta and a jre qualified release below the ceiling the rule rejected'
+    def status = statusOf('com.example', 'widget', '1.0', '3.0')
+    def candidates = [
+      ':': ['com.example:widget:3.0', 'com.example:widget:2.5-beta1', 'com.example:widget:2.0.jre11'],
+    ]
+
+    when:
+    def judged = judge([status], candidates, rejecting('3.0'), 'release')
+
+    then: 'the beta is stepped over and the jre qualified version is read as the release it is'
+    judged[0].latestVersion == '2.0.jre11'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/475')
+  def "The row's own version is offerable below the ceiling however unstable it reads"() {
+    given: 'a build already on a beta, under a revision that rejects every other beta'
+    def status = statusOf('com.example', 'widget', '1.0-beta2', '3.0')
+    def candidates = [
+      ':': ['com.example:widget:3.0', 'com.example:widget:2.0-beta1', 'com.example:widget:1.0-beta2'],
+    ]
+
+    when:
+    def judged = judge([status], candidates, rejecting('3.0'), 'release')
+
+    then: 'the newer beta is stepped over, but the version the build declares is exempt'
+    judged[0].latestVersion == '1.0-beta2'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
+  def 'Leaves the ceiling as its own build baked it when the report has not opted in'() {
+    given: 'a ceiling whose version string the revision would reject, and a rule that rejects nothing'
+    def status = statusOf('com.example', 'widget', '1.0', '2.4.20-Beta2')
+    def candidates = [':': ['com.example:widget:2.4.20-Beta2', 'com.example:widget:2.0']]
+
+    when:
+    def judged = judge([status], candidates, rejecting('9.9'), 'release', false)
+
+    then: 'the guard applies below the ceiling only, so the baked verdict is untouched'
+    judged[0].latestVersion == '2.4.20-Beta2'
+    judged[0].unresolved == null
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
+  def 'Judges the ceiling itself once the report has opted in, with no rules of its own'() {
+    given: 'a ceiling the revision rejects, and a release below it'
+    def status = statusOf('com.example', 'widget', '1.0', '2.4.20-Beta2')
+    def candidates = [':': ['com.example:widget:2.4.20-Beta2', 'com.example:widget:2.0']]
+
+    when:
+    def judged = judge([status], candidates, null, 'release', true)
+
+    then: 'the opt-in alone makes the judge applicable, and the row drops to the release'
+    judged[0].latestVersion == '2.0'
+    judged[0].unresolved == null
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
+  def 'Names the revision when the opted-in guard rejected every candidate'() {
+    given: 'a listing of prereleases only, under a revision that accepts none of them'
+    def status = statusOf('com.example', 'widget', '1.0', '2.4.20-Beta2')
+    def candidates = [':': ['com.example:widget:2.4.20-Beta2', 'com.example:widget:2.0-rc1']]
+
+    when:
+    def judged = judge([status], candidates, null, 'release', true)
+
+    then: 'the exhausted walk names the revision rather than rules the report never had'
+    judged[0].latestVersion == 'none'
+    judged[0].unresolved.selectorVersion == '2.4.20-Beta2'
+    judged[0].unresolved.failureText == 'Rejected by revision release'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
