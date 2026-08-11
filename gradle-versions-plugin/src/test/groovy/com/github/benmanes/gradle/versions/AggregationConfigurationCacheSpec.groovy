@@ -252,6 +252,28 @@ final class AggregationConfigurationCacheSpec extends Specification {
     ]
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'Keeps a rejectVersionIf that reads the build script out of the cache entry'() {
+    given: 'a predicate reading a script object, which a serialized closure is not allowed to do'
+    // Read before the version is compared, so that every candidate the judge would replay the rule
+    // over reaches it rather than short circuiting on the version the producer already rejected.
+    configure(
+      '''
+        rejectVersionIf {
+          project.path == ':' && it.candidate.version == '3.1'
+        }
+      ''')
+
+    when:
+    def store = run(ARGUMENTS)
+    def hit = run(ARGUMENTS)
+
+    then: 'a report that merges in no other build never serializes the action, so the read still works'
+    store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    hit.output.contains('Reusing configuration cache')
+    hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+  }
+
   def 'Warns about assigning the resolutionStrategy only while storing the cache'() {
     given:
     configure(

@@ -432,12 +432,16 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
       )
     }
     val candidatesByProjectPath = partials.associate { it.projectPath to it.candidates }
+    // The configuration cache restores the task without the strategy the producers read, so the
+    // slot that survives it answers where the live property is gone.
+    val judging: Action<in ResolutionStrategyWithCurrent>? =
+      parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
     val statuses =
       mergeStatuses(
         Judge.judge(
           partials.flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } },
           candidatesByProjectPath,
-          parameters.resolutionStrategy,
+          judging,
         ),
       ) +
         mergeStatuses(
@@ -446,7 +450,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
               partial.buildscriptStatuses.map { it.copy(projectPath = partial.projectPath) }
             },
             candidatesByProjectPath,
-            parameters.resolutionStrategy,
+            judging,
           ),
         )
     val skipped =

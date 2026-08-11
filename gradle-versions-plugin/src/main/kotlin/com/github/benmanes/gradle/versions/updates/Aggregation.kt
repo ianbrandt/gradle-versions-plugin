@@ -9,6 +9,7 @@ import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.Dependency
+import org.gradle.api.artifacts.ExternalModuleDependency
 import org.gradle.api.artifacts.ModuleDependency
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.attributes.Category
@@ -98,6 +99,14 @@ internal class DependencyUpdatesParameters {
 
   @Transient
   var exemptFromBuiltInChecksIf: ComponentFilter? = null
+
+  /**
+   * The same strategy, held where the configuration cache carries it into the task that judges the
+   * report. Set only where a report merges in another build's rows, which is the only place judging
+   * can change an answer, so every other build keeps the exemption from serializing the action that
+   * the transient property above gives it.
+   */
+  var judgingResolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
 
   /** Distinguishes a strategy that was explicitly cleared from one that was never set. */
   var resolutionStrategySet: Boolean = false
@@ -337,6 +346,19 @@ internal fun registerAggregation(
           dependency
         },
       )
+    }
+  }
+
+  // The task judges the report from the state the configuration cache restored, where the strategy
+  // the producers read is dropped as transient, so it is captured into a slot that survives. Read
+  // after the project is evaluated, so a strategy the build script configures in any order is seen.
+  // Only a coordinate names another build; the project dependencies that the plugin declares above
+  // are module dependencies too, and their rows were resolved by this build's own policy already.
+  project.afterEvaluate {
+    if (aggregation.get().dependencies.any { it is ExternalModuleDependency }) {
+      accumulator.configure { task ->
+        task.parameters.judgingResolutionStrategy = task.parameters.resolutionStrategy
+      }
     }
   }
 

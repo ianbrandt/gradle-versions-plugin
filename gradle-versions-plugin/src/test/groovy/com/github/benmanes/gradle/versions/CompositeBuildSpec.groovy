@@ -1660,9 +1660,7 @@ final class CompositeBuildSpec extends Specification {
       .parse(new File(testProjectDir.root, "${path}build/dependencyUpdates/report.json"))
   }
 
-  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "An including build's rejectVersionIf governs an included build's dependency"() {
-    given: "the child's own resolution accepts 3.1, but the outer's rule rejects it"
+  private void judgedComposite() {
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -1710,6 +1708,12 @@ final class CompositeBuildSpec extends Specification {
           tool 'com.google.inject:guice:2.0'
         }
       """.stripIndent()
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's rejectVersionIf governs an included build's dependency"() {
+    given: "the child's own resolution accepts 3.1, but the outer's rule rejects it"
+    judgedComposite()
 
     when:
     def result = run('dependencyUpdates')
@@ -1718,6 +1722,24 @@ final class CompositeBuildSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
     !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's rejectVersionIf governs a merged-in row under the configuration cache"() {
+    given: "the same composite, run with the cache stored and then reused"
+    judgedComposite()
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: "the rules are judged from the serialized task, so both legs cap the row at 3.0"
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !store.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+    hit.output.contains('Reusing configuration cache')
+    hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !hit.output.contains('com.google.inject:guice [2.0 -> 3.1]')
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
