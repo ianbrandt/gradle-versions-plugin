@@ -1996,4 +1996,131 @@ final class CompositeBuildSpec extends Specification {
     result.task(':child:dependencyUpdates').outcome == SUCCESS
     result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
   }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "The #475 snapshot exemption survives on a merged row"() {
+    given: 'a snapshot-only module in the child, exempted only when the judge rebuilds its own current version'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '1.5'
+          }
+          rejectVersionIf {
+            candidate.version.endsWith('-SNAPSHOT') && candidate.version != currentVersion
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.example:snapshot-mixed:1.0-SNAPSHOT'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+
+    then: "the outer's rule rejects the release ceiling, and its rebuilt current version exempts the snapshot below it"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    json.current.dependencies.find { it.name == 'snapshot-mixed' }?.version == '1.0-SNAPSHOT'
+    !json.outdated.dependencies*.name.contains('snapshot-mixed')
+    !json.unresolved.dependencies*.name.contains('snapshot-mixed')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A merged row's declared bound holds through the rebuilt constraint"() {
+    given: 'a module the child bounds only through a platform, merged into a build that judges the bound'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            !satisfiesDeclaredBound
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'java-library'
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          implementation platform('org.apache.logging.log4j:log4j:2.16.0')
+          implementation 'org.apache.logging.log4j:log4j-core'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkConstraints = true
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+
+    then: 'the platform bound the child recorded still holds the merged row at the platform version'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    json.current.dependencies.find { it.name == 'log4j-core' }?.version == '2.16.0'
+    !json.outdated.dependencies*.name.contains('log4j-core')
+  }
 }
