@@ -306,6 +306,13 @@ class Resolver internal constructor(
    * resolved result is discarded; a rejected candidate surfaces as an `UnresolvedDependencyResult`
    * inside it, never as a thrown exception, the same tolerance [getStatus] already relies on for the
    * first-accept walk.
+   *
+   * Runs beside [createLatestConfiguration] rather than replacing it. The verdict that walk bakes is
+   * itself a recorded fact—the newest candidate this build's own policy accepted and resolved—and
+   * the only carrier of the revision filter, the build's configuration-level selection rules and its
+   * `force`/`eachDependency` effects, none of which the aggregating task can replay over a listing.
+   * It also keeps `projectUrl`, the classification of a genuine resolution failure, and the proof
+   * that a usable variant of the reported version exists.
    */
   private fun recordAllCandidates(
     configuration: Configuration,

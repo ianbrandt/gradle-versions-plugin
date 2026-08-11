@@ -16,6 +16,11 @@ import org.gradle.api.logging.Logger
  * build could apply, none of which the judge can replay. Every including build's `dependencyUpdates`
  * task judges the rows beneath it by its own rules, so an outer build's `rejectVersionIf` governs a
  * row merged in from an included build, not only the rows it resolved itself.
+ *
+ * A row moved below its verdict offers a version that satisfied both builds' rules but that no
+ * resolution proved usable, unlike the version the producing build accepted and resolved: the
+ * candidates are a repository listing, and a version can pass version selection and still fail
+ * variant selection.
  */
 internal class Judge(
   resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
