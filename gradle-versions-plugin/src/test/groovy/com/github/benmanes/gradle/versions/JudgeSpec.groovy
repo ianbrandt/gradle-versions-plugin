@@ -245,6 +245,66 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'A v1 partial with no candidates list leaves every row at its baked verdict'() {
+    given: 'a partial from an older release, whose projectPath has no entry in the candidates map at all'
+    def status = statusOf('com.example', 'widget', '1.0', '2.0')
+    def candidates = [:]
+    def rejectAll = { ResolutionStrategyWithCurrent strategy ->
+      strategy.componentSelection { rules ->
+        rules.all { selection -> selection.reject('rejected by the test rule') }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = judge([status], candidates, rejectAll)
+
+    then: 'the missing candidate list is read as "row not recorded", not as every candidate rejected'
+    judged == [status]
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "Candidates recorded by one project never judge another project's row"() {
+    given: 'two projects declaring the same module; only one recorded a candidate list at all'
+    def rowInA = statusOf('com.example', 'widget', '1.0', '2.0', ':a')
+    def rowInB = statusOf('com.example', 'widget', '1.0', '2.0', ':b')
+    def candidates = [
+      ':a': ['com.example:widget:2.0', 'com.example:widget:1.0'],
+      ':b': [],
+    ]
+
+    when:
+    def judged = judge([rowInA, rowInB], candidates, rejecting('2.0'))
+
+    then: "project :a's row is walked down by its own recorded candidates"
+    judged.find { it.projectPath == ':a' }.latestVersion == '1.0'
+
+    and: "project :b's row, which recorded none, is untouched by :a's candidates"
+    judged.find { it.projectPath == ':b' }.latestVersion == '2.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'The user action executes exactly once, regardless of how many rows are judged'() {
+    given: 'a strategy that counts its own executions, judged over three rows'
+    def rows = [
+      statusOf('com.example', 'a', '1.0', '2.0'),
+      statusOf('com.example', 'b', '1.0', '2.0'),
+      statusOf('com.example', 'c', '1.0', '2.0'),
+    ]
+    def candidates = [':': []]
+    def executions = 0
+    def strategy = { ResolutionStrategyWithCurrent strategy ->
+      executions++
+      strategy.componentSelection { rules -> rules.all { selection -> } }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    judge(rows, candidates, strategy)
+
+    then:
+    executions == 1
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def 'Replays rules in registration order'() {
     given: 'two rules that each record their own invocation, in the order the build registered them'
     def status = statusOf('com.example', 'widget', '1.0', '2.0')
