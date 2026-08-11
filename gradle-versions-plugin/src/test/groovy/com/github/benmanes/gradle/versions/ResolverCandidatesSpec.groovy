@@ -222,6 +222,69 @@ final class ResolverCandidatesSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'Reports the forced version while recording every candidate the force did not shape'() {
+    given:
+    publishModule('com.probe', 'forcedreport', '2.5', ['3.0', '2.5', '2.0', '1.0'])
+    def app = project()
+    def configuration = app.configurations.create('app')
+    app.dependencies.add('app', 'com.probe:forcedreport:1.0')
+    configuration.resolutionStrategy.force('com.probe:forcedreport:2.5')
+    def resolver = new Resolver(app, null, false)
+
+    when:
+    def statuses = resolver.resolve(configuration, 'integration', resolver.declaredKeys(configuration))
+
+    then:
+    statuses.find { it.coordinate.artifactId == 'forcedreport' }?.latestVersion == '2.5'
+    resolver.candidates == (['com.probe:forcedreport:3.0', 'com.probe:forcedreport:2.5',
+                              'com.probe:forcedreport:2.0', 'com.probe:forcedreport:1.0'] as Set)
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'Reports the eachDependency-pinned version while recording every candidate the rule did not shape'() {
+    given:
+    publishModule('com.probe', 'pinnedreport', '2.0', ['3.0', '2.5', '2.0', '1.0'])
+    def app = project()
+    def configuration = app.configurations.create('app')
+    app.dependencies.add('app', 'com.probe:pinnedreport:1.0')
+    configuration.resolutionStrategy.eachDependency { details ->
+      details.useVersion('2.0')
+    }
+    def resolver = new Resolver(app, null, false)
+
+    when:
+    def statuses = resolver.resolve(configuration, 'integration', resolver.declaredKeys(configuration))
+
+    then:
+    statuses.find { it.coordinate.artifactId == 'pinnedreport' }?.latestVersion == '2.0'
+    resolver.candidates == (['com.probe:pinnedreport:3.0', 'com.probe:pinnedreport:2.5',
+                              'com.probe:pinnedreport:2.0', 'com.probe:pinnedreport:1.0'] as Set)
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
+  def 'Reports the componentSelection-rejected version while recording every candidate the rule did not shape'() {
+    given:
+    publishModule('com.probe', 'rejectedreport', '2.5', ['3.0', '2.5', '2.0', '1.0'])
+    def app = project()
+    def configuration = app.configurations.create('app')
+    app.dependencies.add('app', 'com.probe:rejectedreport:1.0')
+    configuration.resolutionStrategy.componentSelection.all { selection ->
+      if (selection.candidate.version == '3.0') {
+        selection.reject('rejected by the build script')
+      }
+    }
+    def resolver = new Resolver(app, null, false)
+
+    when:
+    def statuses = resolver.resolve(configuration, 'integration', resolver.declaredKeys(configuration))
+
+    then:
+    statuses.find { it.coordinate.artifactId == 'rejectedreport' }?.latestVersion == '2.5'
+    resolver.candidates == (['com.probe:rejectedreport:3.0', 'com.probe:rejectedreport:2.5',
+                              'com.probe:rejectedreport:2.0', 'com.probe:rejectedreport:1.0'] as Set)
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
   def 'Records nothing and does not throw for a module absent from every repository'() {
     given:
     publishModule('com.example', 'widget', '1.0', ['1.0'])
