@@ -94,6 +94,10 @@ internal class Judge(
       )
     val rules = collector.rulesFor(status.group, status.name)
 
+    // Named for the ceiling candidate alone (the first iterated below): `selectorVersion` in the
+    // synthesized UnresolvedInfo is always the ceiling, so the reason reported must answer why
+    // that named version was rejected, not why some older candidate further down the walk was.
+    var ceilingReason: String? = null
     for (index in ceilingIndex until moduleCandidates.size) {
       val version = moduleCandidates[index].substring(prefix.length)
       val shim = RecordedComponentSelection(status.group, status.name, version)
@@ -111,6 +115,9 @@ internal class Judge(
       if (!shim.rejected) {
         return if (version == status.latestVersion) status else status.copy(latestVersion = version)
       }
+      if (index == ceilingIndex) {
+        ceilingReason = shim.reason
+      }
     }
     return status.copy(
       latestVersion = "none",
@@ -119,7 +126,8 @@ internal class Judge(
           status.group,
           status.name,
           status.latestVersion,
-          "Rejected by the aggregating build's component selection rules",
+          ceilingReason.takeUnless { it.isNullOrEmpty() }
+            ?: "Rejected by the aggregating build's component selection rules",
           status.declaredVersion,
           status.userReason,
         ),

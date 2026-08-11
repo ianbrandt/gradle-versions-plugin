@@ -83,6 +83,65 @@ final class JudgeSpec extends Specification {
     judged[0].unresolved != null
     judged[0].unresolved.selectorGroup == 'com.example'
     judged[0].unresolved.selectorName == 'widget'
+    judged[0].unresolved.failureText == 'rejected by the test rule'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'Falls back to the fixed text when the rejecting rule gave no reason'() {
+    given: 'a rule that rejects every candidate with an empty reason'
+    def status = statusOf('com.example', 'widget', '1.0', '2.0')
+    def candidates = [':': ['com.example:widget:2.0', 'com.example:widget:1.0']]
+    def rejectSilently = { ResolutionStrategyWithCurrent strategy ->
+      strategy.componentSelection { rules ->
+        rules.all { selection -> selection.reject('') }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = judge([status], candidates, rejectSilently)
+
+    then:
+    judged[0].unresolved.failureText == 'Rejected by the aggregating build\'s component selection rules'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'The first rule to reject a candidate supplies the reason, not a later rule that never ran'() {
+    given: 'two rules over the same candidate; the second never runs once the first has rejected'
+    def status = statusOf('com.example', 'widget', '1.0', '2.0')
+    def candidates = [':': ['com.example:widget:2.0', 'com.example:widget:1.0']]
+    def strategy = { ResolutionStrategyWithCurrent rs ->
+      rs.componentSelection { rules ->
+        rules.all { selection -> selection.reject('first reason') }
+        rules.all { selection -> selection.reject('second reason') }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = judge([status], candidates, strategy)
+
+    then:
+    judged[0].unresolved.failureText == 'first reason'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'The reason reported names the ceiling candidate, not a lower one the walk also rejected'() {
+    given: 'a rule that rejects three candidates, each with its own reason'
+    def status = statusOf('com.example', 'widget', '1.0', '3.0')
+    def candidates =
+      [':': ['com.example:widget:3.0', 'com.example:widget:2.0', 'com.example:widget:1.0']]
+    def strategy = { ResolutionStrategyWithCurrent rs ->
+      rs.componentSelection { rules ->
+        rules.all { selection ->
+          selection.reject("rejected ${selection.candidate.version}".toString())
+        }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = judge([status], candidates, strategy)
+
+    then: 'the ceiling (3.0, the row\'s own baked verdict) names the reason, not 2.0 or 1.0'
+    judged[0].unresolved.failureText == 'rejected 3.0'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')

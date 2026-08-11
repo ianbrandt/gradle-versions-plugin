@@ -61,6 +61,10 @@ internal class RecordedComponentSelection(
   var rejected: Boolean = false
     private set
 
+  /** The reason passed to [reject], if a rule rejected this candidate. */
+  var reason: String? = null
+    private set
+
   /** Whether a rule rejected this candidate on the metadata or descriptor the record does not carry. */
   var unjudged: Boolean = false
     private set
@@ -92,5 +96,6 @@ internal class RecordedComponentSelection(
 
   override fun reject(reason: String) {
     rejected = true
+    this.reason = reason
   }
 }
