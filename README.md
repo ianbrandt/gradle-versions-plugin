@@ -1025,6 +1025,16 @@ tasks.named("dependencyUpdates").configure {
 
 </details>
 
+A rule runs a second time as the report is written, so that the report applies
+its own rules to every row it holds and not only to the ones this build
+resolved. `metadata` and `getDescriptor` answer null there: the report keeps the
+candidate versions each build found, not the modules behind them, and the
+repositories another build read are not this one's to query. A rejection a rule
+makes after reading either is therefore ignored at that second pass, leaving the
+row at the version the build that resolved it chose rather than reporting it
+unresolved. A rule that reads only `candidate`, `currentVersion` or
+`versionConstraint` is unaffected.
+
 ##### Respecting declared bounds
 
 The report is held to the bounds written in the build. A candidate outside a

@@ -107,6 +107,52 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'Ignores a rejection that the rule made after reading the absent metadata'() {
+    given: 'a rule rejecting every candidate because the record answers its metadata with null'
+    def status = statusOf('com.example', 'widget', '1.0', '3.0')
+    def candidates = [':': ['com.example:widget:3.0', 'com.example:widget:2.0']]
+    def rejectOnNullMetadata = { ResolutionStrategyWithCurrent strategy ->
+      strategy.componentSelection { rules ->
+        rules.all { selection ->
+          if (selection.metadata == null) {
+            selection.reject('rejected by the test rule')
+          }
+        }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = Judge.INSTANCE.judge([status], candidates, rejectOnNullMetadata)
+
+    then: 'the row keeps the verdict its own build reached with the metadata the judge cannot read'
+    judged[0].latestVersion == '3.0'
+    judged[0].unresolved == null
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'Honors a later rule that rejects on the version after an earlier one read the metadata'() {
+    given: 'a metadata reading rule that accepts, followed by one rejecting the verdict by version'
+    def status = statusOf('com.example', 'widget', '1.0', '3.0')
+    def candidates = [':': ['com.example:widget:3.0', 'com.example:widget:2.0']]
+    def strategy = { ResolutionStrategyWithCurrent rs ->
+      rs.componentSelection { rules ->
+        rules.all { selection -> selection.metadata }
+        rules.all { selection ->
+          if (selection.candidate.version == '3.0') {
+            selection.reject('rejected by the test rule')
+          }
+        }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = Judge.INSTANCE.judge([status], candidates, strategy)
+
+    then: 'the metadata read by the earlier rule does not excuse the later rule from being applied'
+    judged[0].latestVersion == '2.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def 'Replays rules in registration order'() {
     given: 'two rules that each record their own invocation, in the order the build registered them'
     def status = statusOf('com.example', 'widget', '1.0', '2.0')

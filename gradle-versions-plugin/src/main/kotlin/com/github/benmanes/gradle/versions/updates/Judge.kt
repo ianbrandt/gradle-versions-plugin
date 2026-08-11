@@ -79,7 +79,7 @@ internal object Judge {
       val shim = RecordedComponentSelection(status.group, status.name, version)
       for (rule in rules) {
         if (shim.rejected) break
-        rule.execute(shim)
+        shim.applyRule(rule)
       }
       if (!shim.rejected) {
         return if (version == status.latestVersion) status else status.copy(latestVersion = version)

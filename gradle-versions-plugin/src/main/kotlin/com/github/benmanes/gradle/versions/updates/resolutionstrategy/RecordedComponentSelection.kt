@@ -1,5 +1,6 @@
 package com.github.benmanes.gradle.versions.updates.resolutionstrategy
 
+import org.gradle.api.Action
 import org.gradle.api.artifacts.ComponentMetadata
 import org.gradle.api.artifacts.ComponentSelection
 import org.gradle.api.artifacts.ModuleIdentifier
@@ -41,14 +42,13 @@ private class RecordedModuleComponentIdentifier(
  * A [ComponentSelection] backed by a recorded candidate rather than a live Gradle resolution, fed
  * to the aggregating build's own component-selection rules at the report.
  *
- * [getMetadata] and [getDescriptor] always answer null. The contract is nullable, and the plugin's
- * own revision filter already treats null as accept, so a predicate that reads either still keeps
- * the ceiling this build's own resolution accepted with real metadata, rather than a wrong answer;
- * only its reach onto a merged-in row degrades, and it degrades toward the producing build's own
- * verdict. Real metadata would cost a fetch per candidate, and is impossible for a merged-in row
- * regardless of cost, as the child's repositories are not the aggregator's to query. No real
- * predicate was observed reading either (the README, the suite, ~15 sampled predicates, ~25
- * consumer repos, 0 issues)—a bounded negative, not proof of zero usage.
+ * [getMetadata] and [getDescriptor] always answer null. The contract is nullable, and a rule that
+ * rejects after reading either is taken to have judged the absence rather than the candidate, so
+ * [applyRule] discards that rejection and the row keeps the ceiling this build's own resolution
+ * accepted with real metadata. Real metadata would cost a fetch per candidate, and is impossible
+ * for a merged-in row regardless of cost, as the child's repositories are not the aggregator's to
+ * query. No real predicate was observed reading either (the README, the suite, ~15 sampled
+ * predicates, ~25 consumer repos, 0 issues)—a bounded negative, not proof of zero usage.
  */
 internal class RecordedComponentSelection(
   group: String,
@@ -56,15 +56,34 @@ internal class RecordedComponentSelection(
   version: String,
 ) : ComponentSelection {
   private val identifier = RecordedModuleComponentIdentifier(group, module, version)
+  private var readAbsentMetadata = false
 
   var rejected: Boolean = false
     private set
 
+  /**
+   * Runs [rule] against this candidate, keeping its rejection only where the rule reached it
+   * without reading the metadata or descriptor that the record does not carry.
+   */
+  fun applyRule(rule: Action<in ComponentSelection>) {
+    readAbsentMetadata = false
+    rule.execute(this)
+    if (readAbsentMetadata) {
+      rejected = false
+    }
+  }
+
   override fun getCandidate(): ModuleComponentIdentifier = identifier
 
-  override fun getMetadata(): ComponentMetadata? = null
+  override fun getMetadata(): ComponentMetadata? {
+    readAbsentMetadata = true
+    return null
+  }
 
-  override fun <T : Any?> getDescriptor(clazz: Class<T>): T? = null
+  override fun <T : Any?> getDescriptor(clazz: Class<T>): T? {
+    readAbsentMetadata = true
+    return null
+  }
 
   override fun reject(reason: String) {
     rejected = true
