@@ -319,6 +319,14 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     parameters.rejectPreReleasesFromCommandLine = rejectPreReleases
   }
 
+  /** Whether the judge also holds a candidate to [VersionStability]'s string predicate over [revision]. */
+  @get:Input
+  var checkVersionStability: Boolean
+    get() = systemCheckVersionStability() ?: parameters.checkVersionStability ?: false
+    set(value) {
+      parameters.checkVersionStability = value
+    }
+
   @Internal
   @Nullable
   @Transient
@@ -436,7 +444,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     // slot that survives it answers where the live property is gone.
     val strategy: Action<in ResolutionStrategyWithCurrent>? =
       parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
-    val judge = Judge(strategy, logger, revision, false)
+    val judge = Judge(strategy, logger, revision, checkVersionStability)
     val projectRows =
       partials.flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } }
     val buildscriptRows =
