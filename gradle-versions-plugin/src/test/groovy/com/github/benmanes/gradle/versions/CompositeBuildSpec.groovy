@@ -1659,4 +1659,104 @@ final class CompositeBuildSpec extends Specification {
     return new JsonSlurper()
       .parse(new File(testProjectDir.root, "${path}build/dependencyUpdates/report.json"))
   }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's rejectVersionIf governs an included build's dependency"() {
+    given: "the child's own resolution accepts 3.1, but the outer's rule rejects it"
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.1'
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.google.inject:guice:2.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the outer's rule reaches the merged-in row, stopping it at 3.0 rather than the child's own 3.1"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An included build's own report is not governed by the including build"() {
+    given: "the outer's rejectVersionIf targets guice, but only when it aggregates the child"
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') << ''
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'java-library'
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          api 'com.google.inject:guice:2.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run(':child:dependencyUpdates')
+
+    then: "the child's own report is unaffected by a rule the outer never gets to register"
+    result.task(':child:dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
 }

@@ -357,6 +357,51 @@ final class RejectVersionIfSpec extends Specification {
     !closureState.contains('ComponentSelectionWithCurrent')
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "a component selection rule on the build's own configuration still caps the report"() {
+    given: 'a configuration-level rule rejects rc candidates, and a rejectVersionIf targeting another ' +
+      'dependency forces the judge to replay rules over every row, guava included'
+    buildFile = writeScript('''
+      dependencies {
+        implementation 'com.google.inject:guice:2.0'
+      }
+
+      configurations.all {
+        resolutionStrategy {
+          componentSelection {
+            all { selection ->
+              if (selection.candidate.version.contains('rc')) {
+                selection.reject('Release candidate')
+              }
+            }
+          }
+        }
+      }
+
+      tasks.named('dependencyUpdates').configure {
+        outputFormatter = 'json'
+        checkForGradleUpdate = false
+        rejectVersionIf {
+          candidate.group == 'com.google.inject' && candidate.version == '3.1'
+        }
+      }
+      ''')
+
+    when:
+    def result = GradleRunner.create()
+      .withProjectDir(testProjectDir.root)
+      .withArguments('dependencyUpdates')
+      .withPluginClasspath()
+      .build()
+    def report = new JsonSlurper().parseText(new File(reportFolder, 'report.json').text)
+
+    then: 'guava stays capped below every rc candidate the judge replays rules over, and guice stops at 3.0'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    report.current.dependencies*.name == ['guava']
+    report.outdated.dependencies*.name == ['guice']
+    report.outdated.dependencies[0].available.milestone == '3.0'
+  }
+
   def 'an unresolved dependency is printed with the cause that failed it'() {
     given: 'a filter that throws, which Gradle reports as an unresolved dependency'
     buildFile = writeBuildFile('candidate.version == noSuchProperty')

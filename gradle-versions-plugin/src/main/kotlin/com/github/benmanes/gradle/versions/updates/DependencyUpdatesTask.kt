@@ -431,14 +431,23 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
           "group and name are aggregated as one.",
       )
     }
+    val candidatesByProjectPath = partials.associate { it.projectPath to it.candidates }
     val statuses =
       mergeStatuses(
-        partials.flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } },
+        Judge.judge(
+          partials.flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } },
+          candidatesByProjectPath,
+          parameters.resolutionStrategy,
+        ),
       ) +
         mergeStatuses(
-          partials.flatMap { partial ->
-            partial.buildscriptStatuses.map { it.copy(projectPath = partial.projectPath) }
-          },
+          Judge.judge(
+            partials.flatMap { partial ->
+              partial.buildscriptStatuses.map { it.copy(projectPath = partial.projectPath) }
+            },
+            candidatesByProjectPath,
+            parameters.resolutionStrategy,
+          ),
         )
     val skipped =
       partials
