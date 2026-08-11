@@ -845,6 +845,76 @@ applied on every run, so the options do not reach what a rule rejects.
 Turn the built-in filter off for a policy of your own, written as a whole in
 a component selection rule. There is no agreed standard for what counts as
 unstable, but this is a common starting point:
+Because Maven repositories do not mark pre-release versions, `revision` alone
+lets an alpha or release candidate appear as the latest version under any
+level. The `checkVersionStability` task property fixes this by turning
+`revision` into a string predicate as well, checked against every candidate's
+version in addition to Gradle's own status matcher:
+
+* `release`: accepts a version whose string reads stable, and rejects
+  everything else. Stable means the keyword rule below (uppercase contains
+  `RELEASE`, `FINAL` or `GA`) or the pattern `^[0-9,.v-]+([.-](r|jre|android)\d*)?$`
+  case-insensitively, as long as the version does not also read as a snapshot.
+* `milestone`: accepts everything except a version that reads as a snapshot,
+  either containing `SNAPSHOT` case-insensitively or ending in Maven's
+  timestamped-snapshot form (`-20240102.030405-6`). An `-rc`, `-beta`,
+  `-alpha` or `-M1` still passes.
+* `integration`: accepts every version string; only Gradle's own status
+  matcher applies.
+
+The `"none"` version and a row's own current version are always exempt, so a
+predicate can only stop a candidate from being offered, never mark the current
+version unresolved.
+
+`checkVersionStability` defaults to `false`. A build already relying on
+`revision` to admit a stable-looking pre-release keeps doing so until it opts
+in:
+
+<details open>
+<summary>Kotlin</summary>
+
+```kotlin
+import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
+
+tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
+  checkVersionStability = true
+}
+```
+
+</details>
+
+<details>
+<summary>Groovy</summary>
+
+```groovy
+tasks.named("dependencyUpdates").configure {
+  checkVersionStability = true
+}
+```
+
+</details>
+
+It can also be set as a system property for ad hoc usage, the same as
+`-Drevision`, and a bare flag with no value reads as `true`:
+
+```bash
+./gradlew dependencyUpdates -DcheckVersionStability
+```
+
+The system property spans the whole build tree: it opts in every included
+build the task reaches, not just the one it is set on.
+
+A row the report judged down under `checkVersionStability` offers a version
+that passed this string check, but that version was never resolved by any
+build, unlike the ceiling candidate, which always carries the producing
+build's full status-aware verdict.
+
+##### Filtering unstable versions
+
+To further control which versions are accepted, define what counts as an
+unstable version. There is no agreed standard, but this is a good starting
+point. The plugin applies this same class of filter itself when
+`checkVersionStability` is `true` (see [Revisions](#revisions)):
 
 <details open>
 <summary>Kotlin</summary>
@@ -885,6 +955,11 @@ In Kotlin the `isNonStable` extension replaces a helper of that name already in
 the build. A top-level `fun isNonStable(version: String)` compiles to the same
 JVM signature, so keeping both fails the build with a platform declaration
 clash.
+unstable set. A version that spells its qualifier some other way, such as
+`13.4.0.jre11`, still matches as unstable and needs the pattern extended, so
+check this against the versions in your own build before relying on it.
+`checkVersionStability`'s own predicate already handles that form; only this
+hand-rolled recipe needs extending.
 
 You can then configure [Component Selection
 Rules](https://docs.gradle.org/current/userguide/dynamic_versions.html#sec:component_selection_rules).
@@ -2369,6 +2444,12 @@ written in the build without a rule written for it, and a coordinate with one
 declared version and different latest versions across the aggregated projects
 is shown on one entry per latest version, where the entries were merged into
 the newest of them before:
+In the next release, the report is held to the bounds written in the build
+without a rule written for it, a coordinate with one declared version and
+different latest versions across the aggregated projects is shown on one entry
+per latest version, where the entries were merged into the newest of them
+before, and `checkVersionStability` turns `revision` into a string predicate as
+well as Gradle's status matcher:
 
 > [!IMPORTANT]
 > - A dependency with no newer release, only a newer pre-release, is now
@@ -2405,6 +2486,10 @@ the newest of them before:
 >   compiler warnings as errors has to drop the clause before upgrading. With
 >   the clause still in a rule, the same candidates are rejected under
 >   `--no-reject-out-of-bounds` as without it.
+> - `checkVersionStability` defaults to `false`, so an existing build's report
+>   is unchanged until it opts in. A build that wants `revision=release` or
+>   `revision=milestone` to actually withhold an alpha or release candidate
+>   should set `checkVersionStability = true` (see [Revisions](#revisions)).
 
 > [!NOTE]
 > - Newer pre-releases are still reported when the current version is itself a
@@ -2426,6 +2511,10 @@ the newest of them before:
 >   declares the module. Once the entries are split, that project is on an entry
 >   of its own, so the line is printed again (see [Report
 >   format](#report-format)).
+> - A row the report judges down under `checkVersionStability` offers a version
+>   that passed the string predicate but was never resolved by any build. The
+>   ceiling candidate a build resolves itself always carries that build's full
+>   status-aware verdict; a row judged down to a lower candidate does not.
 
 ### v0.60.0
 
