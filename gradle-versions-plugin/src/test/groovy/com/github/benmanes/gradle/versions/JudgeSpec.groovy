@@ -5,6 +5,7 @@ import com.github.benmanes.gradle.versions.updates.PartialStatus
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.RecordedComponentSelection
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ResolutionStrategyWithCurrent
 import org.gradle.api.Action
+import org.gradle.api.logging.Logging
 import spock.lang.Issue
 import spock.lang.Specification
 
@@ -15,6 +16,13 @@ import spock.lang.Specification
  */
 @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
 final class JudgeSpec extends Specification {
+  private static final def LOGGER = Logging.getLogger(JudgeSpec)
+
+  private static List<PartialStatus> judge(
+    List<PartialStatus> statuses, Map<String, List<String>> candidates, Action strategy) {
+    return new Judge(strategy, LOGGER).judge(statuses, candidates)
+  }
+
   private static PartialStatus statusOf(
     String group, String name, String declaredVersion, String latestVersion, String projectPath = ':') {
     return new PartialStatus(group, name, declaredVersion, null, latestVersion, null, null, false, [], projectPath)
@@ -39,7 +47,7 @@ final class JudgeSpec extends Specification {
     def candidates = [':': []]
 
     when:
-    def judged = Judge.INSTANCE.judge([status], candidates, rejecting('2.0'))
+    def judged = judge([status], candidates, rejecting('2.0'))
 
     then: 'the baked verdict survives untouched, as the membership guard never ran the rule'
     judged == [status]
@@ -67,7 +75,7 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = Judge.INSTANCE.judge([status], candidates, rejectAll)
+    def judged = judge([status], candidates, rejectAll)
 
     then:
     judged.size() == 1
@@ -99,7 +107,7 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = Judge.INSTANCE.judge([core, coreExt], candidates, rejectCoreOnly)
+    def judged = judge([core, coreExt], candidates, rejectCoreOnly)
 
     then: 'only the targeted module is capped; the one that merely shares its prefix is untouched'
     judged.find { it.name == 'core' }.latestVersion == '1.0'
@@ -122,9 +130,34 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = Judge.INSTANCE.judge([status], candidates, rejectOnNullMetadata)
+    def judged = judge([status], candidates, rejectOnNullMetadata)
 
     then: 'the row keeps the verdict its own build reached with the metadata the judge cannot read'
+    judged[0].latestVersion == '3.0'
+    judged[0].unresolved == null
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'Offers no candidate below one the rule rejected on the absent metadata'() {
+    given: 'a rule rejecting the verdict by version, and everything under it by its null metadata'
+    def status = statusOf('com.example', 'widget', '1.0', '3.0')
+    def candidates =
+      [':': ['com.example:widget:3.0', 'com.example:widget:2.0', 'com.example:widget:1.0']]
+    // Groovy short circuits, so the verdict is rejected without the metadata ever being read.
+    def strategy = { ResolutionStrategyWithCurrent rs ->
+      rs.componentSelection { rules ->
+        rules.all { selection ->
+          if (selection.candidate.version == '3.0' || selection.metadata == null) {
+            selection.reject('rejected by the test rule')
+          }
+        }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = judge([status], candidates, strategy)
+
+    then: 'the walk stops rather than offering 2.0, which the rule rejected as surely as 3.0'
     judged[0].latestVersion == '3.0'
     judged[0].unresolved == null
   }
@@ -146,7 +179,7 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = Judge.INSTANCE.judge([status], candidates, strategy)
+    def judged = judge([status], candidates, strategy)
 
     then: 'the metadata read by the earlier rule does not excuse the later rule from being applied'
     judged[0].latestVersion == '2.0'
@@ -166,7 +199,7 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    Judge.INSTANCE.judge([status], candidates, strategy)
+    judge([status], candidates, strategy)
 
     then:
     order == ['first', 'second']

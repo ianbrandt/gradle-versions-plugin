@@ -93,6 +93,12 @@ internal class DependencyUpdatesParameters {
 
   @Transient
   var resolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
+    set(value) {
+      field = value
+      if (judgesAnotherBuild) {
+        judgingResolutionStrategy = value
+      }
+    }
 
   @Transient
   var preReleaseVersionIf: Spec<String>? = null
@@ -101,10 +107,22 @@ internal class DependencyUpdatesParameters {
   var exemptFromBuiltInChecksIf: ComponentFilter? = null
 
   /**
-   * The same strategy, held where the configuration cache carries it into the task that judges the
-   * report. Set only where a report merges in another build's rows, which is the only place judging
-   * can change an answer, so every other build keeps the exemption from serializing the action that
-   * the transient property above gives it.
+   * Whether a row this report holds was resolved by another build, which is the only place judging
+   * can change an answer. Turning it on captures the strategy for the judge, and it stays captured
+   * as the strategy is reconfigured, so the two may be set in either order and any number of times.
+   */
+  var judgesAnotherBuild: Boolean = false
+    set(value) {
+      field = value
+      if (value) {
+        judgingResolutionStrategy = resolutionStrategy
+      }
+    }
+
+  /**
+   * The strategy the report judges by, held where the configuration cache carries it into the task
+   * rather than dropping it with the transient property above. Only a report that merges in another
+   * build's rows sets it, so every other build keeps its exemption from serializing the action.
    */
   var judgingResolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
 
@@ -347,18 +365,14 @@ internal fun registerAggregation(
         },
       )
     }
-  }
-
-  // The task judges the report from the state the configuration cache restored, where the strategy
-  // the producers read is dropped as transient, so it is captured into a slot that survives. Read
-  // after the project is evaluated, so a strategy the build script configures in any order is seen.
-  // Only a coordinate names another build; the project dependencies that the plugin declares above
-  // are module dependencies too, and their rows were resolved by this build's own policy already.
-  project.afterEvaluate {
-    if (aggregation.get().dependencies.any { it is ExternalModuleDependency }) {
-      accumulator.configure { task ->
-        task.parameters.judgingResolutionStrategy = task.parameters.resolutionStrategy
-      }
+    // The task judges the report from the state the configuration cache restored, which drops the
+    // strategy the producers read, so a report that can hold another build's rows keeps a copy that
+    // survives. Marked as each dependency is declared rather than at a moment of this project's
+    // evaluation, so that a coordinate a later hook adds is still seen. Only a coordinate names
+    // another build: the project dependencies declared below are module dependencies too, and the
+    // rows they reach were resolved by this build's own policy already.
+    if (dependency is ExternalModuleDependency) {
+      accumulator.configure { task -> task.parameters.judgesAnotherBuild = true }
     }
   }
 

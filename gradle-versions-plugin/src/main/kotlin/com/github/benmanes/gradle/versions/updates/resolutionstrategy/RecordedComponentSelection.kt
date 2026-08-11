@@ -44,11 +44,11 @@ private class RecordedModuleComponentIdentifier(
  *
  * [getMetadata] and [getDescriptor] always answer null. The contract is nullable, and a rule that
  * rejects after reading either is taken to have judged the absence rather than the candidate, so
- * [applyRule] discards that rejection and the row keeps the ceiling this build's own resolution
- * accepted with real metadata. Real metadata would cost a fetch per candidate, and is impossible
- * for a merged-in row regardless of cost, as the child's repositories are not the aggregator's to
- * query. No real predicate was observed reading either (the README, the suite, ~15 sampled
- * predicates, ~25 consumer repos, 0 issues)—a bounded negative, not proof of zero usage.
+ * that rejection is not honored and the candidate is [unjudged] instead. Real metadata would cost a
+ * fetch per candidate, and is impossible for a merged-in row regardless of cost, as the child's
+ * repositories are not the aggregator's to query. No real predicate was observed reading either
+ * (the README, the suite, ~15 sampled predicates, ~25 consumer repos, 0 issues)—a bounded negative,
+ * not proof of zero usage.
  */
 internal class RecordedComponentSelection(
   group: String,
@@ -61,6 +61,10 @@ internal class RecordedComponentSelection(
   var rejected: Boolean = false
     private set
 
+  /** Whether a rule rejected this candidate on the metadata or descriptor the record does not carry. */
+  var unjudged: Boolean = false
+    private set
+
   /**
    * Runs [rule] against this candidate, keeping its rejection only where the rule reached it
    * without reading the metadata or descriptor that the record does not carry.
@@ -68,8 +72,9 @@ internal class RecordedComponentSelection(
   fun applyRule(rule: Action<in ComponentSelection>) {
     readAbsentMetadata = false
     rule.execute(this)
-    if (readAbsentMetadata) {
+    if (rejected && readAbsentMetadata) {
       rejected = false
+      unjudged = true
     }
   }
 

@@ -1661,14 +1661,9 @@ final class CompositeBuildSpec extends Specification {
       .parse(new File(testProjectDir.root, "${path}build/dependencyUpdates/report.json"))
   }
 
-  private void judgedComposite() {
-    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
-    testProjectDir.newFile('build.gradle') <<
+  private void judgedComposite(
+    String outerBody =
       """
-        plugins {
-          id 'io.github.ben-manes.versions'
-        }
-
         dependencies {
           dependencyUpdatesAggregation 'com.example:child:1.0'
         }
@@ -1678,6 +1673,15 @@ final class CompositeBuildSpec extends Specification {
             candidate.version == '3.1'
           }
         }
+      """) {
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        ${outerBody}
       """.stripIndent()
     testProjectDir.newFolder('child')
     testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
@@ -1741,6 +1745,149 @@ final class CompositeBuildSpec extends Specification {
     hit.output.contains('Reusing configuration cache')
     hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
     !hit.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Unroll
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A composite judges the same rows with the cache as without it, #declared"() {
+    given: 'the rule and the aggregation coordinate declared in either order, one of them late'
+    judgedComposite(outerBody)
+
+    when:
+    def plain = run('dependencyUpdates')
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'a hook that runs after the project is evaluated is still seen by the judge'
+    [plain, store, hit].every { it.output.contains('com.google.inject:guice [2.0 -> 3.0]') }
+    [plain, store, hit].every { !it.output.contains('com.google.inject:guice [2.0 -> 3.1]') }
+
+    where:
+    declared << ['the rule from a later hook', 'the coordinate from a later hook']
+    outerBody << [
+      '''
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        afterEvaluate {
+          tasks.named('dependencyUpdates').configure {
+            rejectVersionIf {
+              candidate.version == '3.1'
+            }
+          }
+        }
+      ''',
+      '''
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.1'
+          }
+        }
+
+        afterEvaluate {
+          dependencies {
+            dependencyUpdatesAggregation 'com.example:child:1.0'
+          }
+        }
+      ''',
+    ]
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A resolutionStrategy cleared after it was captured does not govern the report"() {
+    given: 'a rule registered in the build script and cleared from a later hook'
+    judgedComposite(
+      '''
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.1'
+          }
+        }
+
+        afterEvaluate {
+          tasks.named('dependencyUpdates').configure {
+            resolutionStrategy()
+          }
+        }
+      ''')
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: 'clearing the strategy clears what the judge would have applied along with it'
+    result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A report that cannot apply its own rules says so rather than judging nothing quietly"() {
+    given: 'a strategy reading a script object as it registers, which a serialized closure may not do'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          resolutionStrategy {
+            def owner = project.path
+            it.componentSelection { rules ->
+              rules.all { selection ->
+                if (selection.candidate.version == '3.1') {
+                  selection.reject('rejected by the test rule')
+                }
+              }
+            }
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.google.inject:guice:2.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the rows stay as their own builds resolved them, and the report names the reason'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('The report kept each dependency as the build that resolved it reported it')
+    result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
   }
 
   // The report's revision filter reads a status that a recorded candidate has no metadata to carry,
