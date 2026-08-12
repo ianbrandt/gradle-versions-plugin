@@ -1686,6 +1686,93 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An aggregation entry does not carry the build the build it names includes"() {
+    given: "a root naming the child alone, where the child names its own included grandchild"
+    nestedComposite(false)
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the entry brings the child build's projects, and stops at that build's boundary"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice')
+    !result.output.contains('com.google.guava:guava')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An aggregation entry names an included build of an included build"() {
+    given: 'the same tree, with the root naming the grandchild build as well'
+    nestedComposite(true)
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: 'a build anywhere in the tree is reached by naming it, however deeply it is included'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice')
+    result.output.contains('com.google.guava:guava')
+  }
+
+  /** A root including a child that itself includes and aggregates a grandchild. */
+  private void nestedComposite(boolean namesGrandchild) {
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+          ${namesGrandchild ? "dependencyUpdatesAggregation 'com.example:grandchild:1.0'" : ''}
+        }
+      """.stripIndent()
+
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') <<
+      "rootProject.name = 'child'\nincludeBuild 'grandchild'"
+    testProjectDir.newFile('child/build.gradle') << aggregatingBuild('child', 'grandchild',
+      "com.google.inject:guice:2.0")
+
+    testProjectDir.newFolder('child', 'grandchild')
+    testProjectDir.newFile('child/grandchild/settings.gradle') << "rootProject.name = 'grandchild'"
+    testProjectDir.newFile('child/grandchild/build.gradle') << aggregatingBuild('grandchild', null,
+      "com.google.guava:guava:15.0")
+  }
+
+  /** A build that applies the plugin, declares [dependency], and aggregates [aggregated] if named. */
+  private String aggregatingBuild(String name, String aggregated, String dependency) {
+    return """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool '${dependency}'
+          ${aggregated == null ? '' : "dependencyUpdatesAggregation 'com.example:${aggregated}:1.0'"}
+        }
+      """.stripIndent()
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A Kotlin rule calling a buildSrc helper keeps the configuration cache"() {
     given: 'the helper moved out of the build script, which is the remedy the warning names'
     kotlinJudgedComposite('candidate.version.isRejected()')
