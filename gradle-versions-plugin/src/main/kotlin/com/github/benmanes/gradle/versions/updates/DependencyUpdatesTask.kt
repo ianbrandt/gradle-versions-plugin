@@ -390,10 +390,40 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   val projectDirectory: DirectoryProperty =
     project.objects.directoryProperty().convention(project.layout.projectDirectory)
 
+  /** Whether the cache has already been told that it cannot hold this report's judging rules. */
+  private var judgeWithheldFromCache = false
+
   init {
     description = "Displays the dependency updates for the project."
     group = "Help"
     outputs.upToDateWhen { false }
+    parameters.onJudgingStrategy = { strategy -> withholdJudgeFromCache(strategy) }
+  }
+
+  /**
+   * Gives up the configuration cache entry for a report whose judging rules hold their own build
+   * script, which the cache refuses to serialize. Discarding the entry keeps the report correct and
+   * the build running, where storing it would fail outright and isolated projects offers no way to
+   * turn the cache off.
+   *
+   * Only a Kotlin script is withheld for: a Groovy closure carries its script as well and is
+   * serialized by substituting the owner, so those reports keep their entry.
+   * https://github.com/ben-manes/gradle-versions-plugin/issues/1058
+   */
+  private fun withholdJudgeFromCache(strategy: Action<in ResolutionStrategyWithCurrent>?) {
+    if (judgeWithheldFromCache || !holdsKotlinScript(strategy)) {
+      return
+    }
+    judgeWithheldFromCache = true
+    notCompatibleWithConfigurationCache(
+      "The rules that judge another build's dependency updates hold this build's script.",
+    )
+    logger.warn(
+      "The dependency updates report of $projectPath gave up its configuration cache entry: a " +
+        "rejectVersionIf or resolutionStrategy rule reads something its own build script declares, " +
+        "which the cache cannot store for a report that judges another build's dependencies. " +
+        "Declare the rule's helpers in buildSrc or in a precompiled script plugin to keep the entry.",
+    )
   }
 
   /** Merges the partial results of every project and writes the report. */

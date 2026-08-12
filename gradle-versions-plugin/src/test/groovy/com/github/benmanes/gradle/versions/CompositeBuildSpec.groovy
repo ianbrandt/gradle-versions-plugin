@@ -1682,6 +1682,44 @@ final class CompositeBuildSpec extends Specification {
 
         ${outerBody}
       """.stripIndent()
+    judgedChild()
+  }
+
+  /**
+   * The same composite with a Kotlin build script, whose rule is written as the README's own recipe
+   * is: a call to a function the script declares. Such a call binds the script into the lambda.
+   */
+  private void kotlinJudgedComposite(String rule) {
+    testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
+    testProjectDir.newFile('build.gradle.kts') <<
+      """
+        import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
+
+        buildscript {
+          dependencies {
+            classpath(files(${classpathString.replace("'", '"')}))
+          }
+        }
+
+        apply(plugin = "io.github.ben-manes.versions")
+
+        fun String.isRejected(): Boolean = this == "3.1"
+
+        dependencies {
+          add("dependencyUpdatesAggregation", "com.example:child:1.0")
+        }
+
+        tasks.named("dependencyUpdates", DependencyUpdatesTask::class.java) {
+          val rejected = "3.1"
+          rejectVersionIf {
+            ${rule}
+          }
+        }
+      """.stripIndent()
+    judgedChild()
+  }
+
+  private void judgedChild() {
     testProjectDir.newFolder('child')
     testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
     testProjectDir.newFile('child/build.gradle') <<
@@ -1741,6 +1779,39 @@ final class CompositeBuildSpec extends Specification {
     store.task(':dependencyUpdates').outcome == SUCCESS
     store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
     !store.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+    hit.output.contains('Reusing configuration cache')
+    hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !hit.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A Kotlin rule calling a function its own build script declares still judges the report"() {
+    given: 'the rule written as the README recipe is, so the lambda holds the script'
+    kotlinJudgedComposite('candidate.version.isRejected()')
+
+    when:
+    def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the report is judged, and the cache gives way rather than the build failing to store it'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+    result.output.contains('Configuration cache entry discarded')
+    result.output.contains('rejectVersionIf')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A Kotlin rule that holds no build script keeps the configuration cache"() {
+    given: 'the same composite, with the rule written so that it reads nothing the script declares'
+    kotlinJudgedComposite('candidate.version == rejected')
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the entry is kept, so the report a Kotlin build caches today is not given up for the case above'
+    store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !store.output.contains('Configuration cache entry discarded')
     hit.output.contains('Reusing configuration cache')
     hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
     !hit.output.contains('com.google.inject:guice [2.0 -> 3.1]')

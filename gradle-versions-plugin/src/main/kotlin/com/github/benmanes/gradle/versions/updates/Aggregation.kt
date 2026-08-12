@@ -24,6 +24,9 @@ import org.gradle.api.services.BuildService
 import org.gradle.api.services.BuildServiceParameters
 import org.gradle.api.specs.Spec
 import org.gradle.api.tasks.TaskProvider
+import java.lang.reflect.Modifier
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
 
 // Not prefixed with "dependencyUpdates": a project with only a producer would otherwise let
@@ -38,11 +41,59 @@ private const val VERIFICATION_TYPE = "dependency-updates"
 /** The number of causes joined into a skipped configuration's reason, matching DependencyStatus. */
 private const val MAX_FAILURE_CAUSES = 20
 
+/** The type a compiled Kotlin build script carries, which the configuration cache cannot hold. */
+private const val KOTLIN_SCRIPT_TYPE = "org.gradle.kotlin.dsl.KotlinScript"
+
+/** How many captured objects are read before the search below gives up. */
+private const val MAX_INSPECTED_CAPTURES = 500
+
 /** The filter applied when a task leaves the configurations unrestricted. */
 internal val ALL_CONFIGURATIONS = Spec<Configuration> { true }
 
 /** The filter applied when a task leaves the declared configurations unrestricted. */
 internal val ALL_DECLARED_CONFIGURATIONS = Spec<String> { true }
+
+/**
+ * Returns whether [value] holds a Kotlin build script, which the configuration cache refuses to
+ * serialize. A Kotlin script's top level functions and properties are members of the script class,
+ * so a lambda that reads one captures the script itself.
+ *
+ * A Groovy closure reaches its own script too, through the owner that every closure carries, and is
+ * deliberately not reported: Gradle serializes that one by substituting the owner, so reporting it
+ * would give up the cache for the builds that keep it today.
+ */
+internal fun holdsKotlinScript(value: Any?): Boolean {
+  val pending = ArrayDeque(listOfNotNull(value))
+  val seen = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
+  var inspected = 0
+  while (pending.isNotEmpty() && inspected++ < MAX_INSPECTED_CAPTURES) {
+    val captured = pending.removeFirst()
+    if (!seen.add(captured)) {
+      continue
+    }
+    // Asked of the object's own loader rather than the plugin's, which a build that uses no Kotlin
+    // script never has the type on.
+    val isScript =
+      runCatching {
+        captured.javaClass.classLoader?.loadClass(KOTLIN_SCRIPT_TYPE)?.isInstance(captured)
+      }.getOrNull()
+    if (isScript == true) {
+      return true
+    }
+    // Only the fields the class declares are read, which is where a lambda holds what it captured.
+    // Walking the inherited ones as well would reach a Groovy closure's owner.
+    for (field in runCatching { captured.javaClass.declaredFields }.getOrDefault(emptyArray())) {
+      if (Modifier.isStatic(field.modifiers) || field.type.isPrimitive) {
+        continue
+      }
+      runCatching {
+        field.isAccessible = true
+        field.get(captured)
+      }.getOrNull()?.let { pending.add(it) }
+    }
+  }
+  return false
+}
 
 /** Returns whether isolated projects is enabled, which forbids configuring the other projects. */
 internal fun isIsolatedProjectsEnabled(project: Project): Boolean =
@@ -125,6 +176,18 @@ internal class DependencyUpdatesParameters {
    * build's rows sets it, so every other build keeps its exemption from serializing the action.
    */
   var judgingResolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
+    set(value) {
+      field = value
+      onJudgingStrategy?.invoke(value)
+    }
+
+  /**
+   * Notified as the strategy above is assigned, so that the task answers whether the cache can hold
+   * it however late the rule and the aggregated coordinate are declared. Transient, as the question
+   * is settled while the build is configured and the entry carries the answer rather than this.
+   */
+  @Transient
+  var onJudgingStrategy: ((Action<in ResolutionStrategyWithCurrent>?) -> Unit)? = null
 
   /** Distinguishes a strategy that was explicitly cleared from one that was never set. */
   var resolutionStrategySet: Boolean = false
