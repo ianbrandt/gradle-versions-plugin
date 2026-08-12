@@ -961,6 +961,11 @@ check this against the versions in your own build before relying on it.
 `checkVersionStability`'s own predicate already handles that form; only this
 hand-rolled recipe needs extending.
 
+In a build that merges an included build's entries, declaring `isNonStable` in
+the build script costs that report its configuration cache entry, since the
+rule then holds the script (see [Composite builds](#composite-builds)). Move
+the helper to `buildSrc` there. A Groovy build is unaffected.
+
 You can then configure [Component Selection
 Rules](https://docs.gradle.org/current/userguide/dynamic_versions.html#sec:component_selection_rules).
 The current version of a component can be retrieved with the `currentVersion`
@@ -2081,6 +2086,10 @@ hierarchy whose task set them. Configuring the root project's task therefore
 covers every project, unless a subproject configures its own (see [Task
 properties](#task-properties)).
 
+This inheritance runs within one build. An included build takes none of it; the
+report that merges its entries applies its own settings to them instead (see
+[Composite builds](#composite-builds)).
+
 #### Composite builds
 
 An included build is a separate build with its own settings script, so its
@@ -2122,11 +2131,14 @@ Every included build needs the plugin applied for its `dependencyUpdates` task
 to exist. A build that must stay unmodified can have the plugin injected by an
 [init script](#initialization-script) instead.
 
-An included build's project can instead be merged into this build's report, by
-declaring it in the `dependencyUpdatesAggregation` configuration of the project
-that aggregates. Declare it by the coordinates that the include substitutes, and
-apply the plugin in the included build, so that a partial result exists to
-merge. Each declaration merges the one project it resolves to. A project of this
+An included build's report can instead be merged into this build's report, by
+declaring the build in the `dependencyUpdatesAggregation` configuration of the
+project that aggregates. Declare it by the coordinates that the include
+substitutes, and apply the plugin in the included build, so that a report exists
+to merge. Each declaration brings every project of that build, where it brought
+the one project its coordinates resolved to before. It stops at that build's own
+boundary: a build that the declared build includes in turn needs a declaration
+of its own, which reaches it however deeply it is included. A project of this
 build that the aggregating project's own tree does not cover, such as a sibling,
 is declared the same way:
 
@@ -2153,6 +2165,38 @@ dependencies {
 ```
 
 </details>
+
+The task that writes the report applies its own settings to every entry it
+holds, including the entries an included build resolved. Its `rejectVersionIf`
+or `resolutionStrategy` rules judge those entries, and
+`filterDeclaredConfigurations` leaves them out by the names they show. An
+included build that configures nothing takes the aggregating build's rules for
+the entries it contributes.
+
+The report only narrows what a build offered. The version an entry shows is the
+newest one the producing build's own resolution accepted, so an aggregating
+build can move an entry to an older version, but not to a newer one. An
+included build with stricter rules caps what the merged report shows for the
+coordinates it declares.
+
+An entry the report moved to an older version was never resolved at that
+version. The candidates behind it come from a repository listing, so the
+version satisfied both builds' rules, while no resolution proved a usable
+variant of it exists. The version the producing build accepted is the one it
+resolved.
+
+The settings that decide what is resolved stay with the build that resolves it:
+`filterConfigurations`, `checkConstraints`, and
+`checkBuildEnvironmentConstraints`. `revision` also keeps the producing build's
+answer for the version an entry shows, unless the aggregating build sets
+`checkVersionStability` (see [Revisions](#revisions)). Declare those in each
+included build.
+
+A report that judges another build's entries carries its rules into the
+configuration cache. A Kotlin rule that calls a function its own build script
+declares holds the script inside the rule, which the cache cannot store, so the
+report gives up its cache entry and names the project in a warning. Declare the
+rule's helpers in `buildSrc` to keep the entry. A Groovy closure is unaffected.
 
 #### Per-project reports
 
@@ -2448,8 +2492,9 @@ In the next release, the report is held to the bounds written in the build
 without a rule written for it, a coordinate with one declared version and
 different latest versions across the aggregated projects is shown on one entry
 per latest version, where the entries were merged into the newest of them
-before, and `checkVersionStability` turns `revision` into a string predicate as
-well as Gradle's status matcher:
+before, `checkVersionStability` turns `revision` into a string predicate as well
+as Gradle's status matcher, and an aggregating report applies its own settings
+to the entries it merges from an included build:
 
 > [!IMPORTANT]
 > - A dependency with no newer release, only a newer pre-release, is now
@@ -2468,6 +2513,18 @@ well as Gradle's status matcher:
 >   `projects` (see [Multi-project builds](#multi-project-builds)), which is
 >   what distinguishes them. A tool that keys the entries by group and name
 >   alone has to key them by the projects as well.
+> - A `dependencyUpdatesAggregation` entry now brings every project of the build
+>   it declares, where it brought the one project its coordinates resolved to. A
+>   composite that declared every project of an included build can declare the
+>   build alone (see [Composite builds](#composite-builds)).
+> - The aggregating report's `rejectVersionIf`, `resolutionStrategy` and
+>   `filterDeclaredConfigurations` reach the entries an included build resolved.
+>   A merged entry can show an older version, or not appear at all, where the
+>   included build's own settings decided it before.
+> - A report that merges an included build's entries gives up its configuration
+>   cache entry when a Kotlin rule calls a function its own build script
+>   declares, as the `isNonStable` recipe does. Move the helper to `buildSrc` to
+>   keep the entry. A Groovy build is unaffected.
 
 > [!TIP]
 > - The `isNonStable` recipe formerly recommended here can be dropped, along with
@@ -2511,10 +2568,10 @@ well as Gradle's status matcher:
 >   declares the module. Once the entries are split, that project is on an entry
 >   of its own, so the line is printed again (see [Report
 >   format](#report-format)).
-> - A row the report judges down under `checkVersionStability` offers a version
->   that passed the string predicate but was never resolved by any build. The
->   ceiling candidate a build resolves itself always carries that build's full
->   status-aware verdict; a row judged down to a lower candidate does not.
+> - An entry the report moved to an older version, whether under
+>   `checkVersionStability` or under the aggregating build's own rules, offers a
+>   version no build resolved. The version a build accepts itself always carries
+>   that build's full status-aware verdict; a version below it does not.
 
 ### v0.60.0
 
