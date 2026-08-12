@@ -141,6 +141,12 @@ internal class DependencyUpdatesParameters {
 
   @Transient
   var filterDeclaredConfigurations: Spec<String>? = null
+    set(value) {
+      field = value
+      if (judgesAnotherBuild) {
+        judgingFilterDeclaredConfigurations = value
+      }
+    }
 
   @Transient
   var resolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
@@ -159,14 +165,16 @@ internal class DependencyUpdatesParameters {
 
   /**
    * Whether a row this report holds was resolved by another build, which is the only place judging
-   * can change an answer. Turning it on captures the strategy for the judge, and it stays captured
-   * as the strategy is reconfigured, so the two may be set in either order and any number of times.
+   * can change an answer. Turning it on captures the strategy and the filter for the judge, and
+   * they stay captured as either is reconfigured, so they may be set in any order and any number of
+   * times.
    */
   var judgesAnotherBuild: Boolean = false
     set(value) {
       field = value
       if (value) {
         judgingResolutionStrategy = resolutionStrategy
+        judgingFilterDeclaredConfigurations = filterDeclaredConfigurations
       }
     }
 
@@ -178,16 +186,28 @@ internal class DependencyUpdatesParameters {
   var judgingResolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
     set(value) {
       field = value
-      onJudgingStrategy?.invoke(value)
+      onJudgingCapture?.invoke(value)
     }
 
   /**
-   * Notified as the strategy above is assigned, so that the task answers whether the cache can hold
-   * it however late the rule and the aggregated coordinate are declared. Transient, as the question
-   * is settled while the build is configured and the entry carries the answer rather than this.
+   * The filter the report leaves entries out by, held where the configuration cache carries it into
+   * the task rather than dropping it with the transient property above. Set on the same terms as
+   * the strategy, so a build that judges nobody keeps its exemption from serializing a predicate.
+   */
+  var judgingFilterDeclaredConfigurations: Spec<String>? = null
+    set(value) {
+      field = value
+      onJudgingCapture?.invoke(value)
+    }
+
+  /**
+   * Notified as each of the two judging slots above is assigned, so that the task answers whether
+   * the cache can hold them however late the rule, the filter and the aggregated coordinate are
+   * declared. Transient, as the question is settled while the build is configured and the entry
+   * carries the answer rather than this.
    */
   @Transient
-  var onJudgingStrategy: ((Action<in ResolutionStrategyWithCurrent>?) -> Unit)? = null
+  var onJudgingCapture: ((Any?) -> Unit)? = null
 
   /** Distinguishes a strategy that was explicitly cleared from one that was never set. */
   var resolutionStrategySet: Boolean = false

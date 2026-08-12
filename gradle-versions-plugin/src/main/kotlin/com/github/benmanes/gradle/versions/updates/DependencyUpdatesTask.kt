@@ -397,7 +397,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     description = "Displays the dependency updates for the project."
     group = "Help"
     outputs.upToDateWhen { false }
-    parameters.onJudgingStrategy = { strategy -> withholdJudgeFromCache(strategy) }
+    parameters.onJudgingCapture = { captured -> withholdJudgeFromCache(captured) }
   }
 
   /**
@@ -410,8 +410,8 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
    * serialized by substituting the owner, so those reports keep their entry.
    * https://github.com/ben-manes/gradle-versions-plugin/issues/1058
    */
-  private fun withholdJudgeFromCache(strategy: Action<in ResolutionStrategyWithCurrent>?) {
-    if (judgeWithheldFromCache || !holdsKotlinScript(strategy)) {
+  private fun withholdJudgeFromCache(captured: Any?) {
+    if (judgeWithheldFromCache || !holdsKotlinScript(captured)) {
       return
     }
     judgeWithheldFromCache = true
@@ -420,9 +420,10 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     )
     logger.warn(
       "The dependency updates report of $projectPath gave up its configuration cache entry: a " +
-        "rejectVersionIf or resolutionStrategy rule reads something its own build script declares, " +
-        "which the cache cannot store for a report that judges another build's dependencies. " +
-        "Declare the rule's helpers in buildSrc or in a precompiled script plugin to keep the entry.",
+        "rejectVersionIf, resolutionStrategy or filterDeclaredConfigurations rule reads something " +
+        "its own build script declares, which the cache cannot store for a report that judges " +
+        "another build's dependencies. Declare the rule's helpers in buildSrc or in a precompiled " +
+        "script plugin to keep the entry.",
     )
   }
 
@@ -475,12 +476,19 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     val strategy: Action<in ResolutionStrategyWithCurrent>? =
       parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
     val judge = Judge(strategy, logger, revision, checkVersionStability)
+    // Read from the slot that survives the cache rather than the live property, which is gone by
+    // here on a restored entry. Only a report that merges in another build's rows fills it, so a
+    // build that aggregates nobody keeps the answer its own producers already filtered.
+    val declaredFilter = parameters.judgingFilterDeclaredConfigurations
     val projectRows =
-      partials.flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } }
+      partials
+        .flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } }
+        .filter { declaredFilter.keeps(it) }
     val buildscriptRows =
-      partials.flatMap { partial ->
-        partial.buildscriptStatuses.map { it.copy(projectPath = partial.projectPath) }
-      }
+      partials
+        .flatMap { partial ->
+          partial.buildscriptStatuses.map { it.copy(projectPath = partial.projectPath) }
+        }.filter { declaredFilter.keeps(it) }
     val statuses =
       mergeStatuses(judge.judge(projectRows, candidatesByProjectPath)) +
         mergeStatuses(judge.judge(buildscriptRows, candidatesByProjectPath))
@@ -621,3 +629,13 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     outputFormatterArgument = OutputFormatterArgument.CustomAction(action)
   }
 }
+
+/**
+ * Whether the report keeps [status] under its own declared-configuration filter, matching the rule
+ * the producer applies: an entry that names no configuration, as an ordinary declaration's does, is
+ * kept whatever the filter rejects. A null filter is a report with nothing of its own to say.
+ */
+private fun Spec<String>?.keeps(status: PartialStatus): Boolean =
+  this == null ||
+    status.configurations.isEmpty() ||
+    status.configurations.any { isSatisfiedBy(it) }

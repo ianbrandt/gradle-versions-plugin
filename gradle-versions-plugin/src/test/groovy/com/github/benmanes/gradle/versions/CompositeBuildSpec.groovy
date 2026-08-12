@@ -1817,6 +1817,115 @@ final class CompositeBuildSpec extends Specification {
     !hit.output.contains('com.google.inject:guice [2.0 -> 3.1]')
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's filterDeclaredConfigurations leaves out an included build's entry"() {
+    given: "the child declares guice into a 'tool' configuration only the child itself could filter"
+    judgedComposite(filteringOuter())
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: 'the merged-in row is left out by the name it shows'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    !result.output.contains('com.google.inject:guice')
+    // The survivor proves the drop is per-entry rather than an emptied report, and that a row
+    // naming no configuration is kept by the report's filter as it is by the producer's.
+    result.output.contains('com.google.guava:guava')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's filterDeclaredConfigurations leaves out a merged-in entry under the cache"() {
+    given: 'the same composite, run with the cache stored and then reused'
+    judgedComposite(filteringOuter())
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the filter is read from the serialized task, so both legs leave the row out'
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    !store.output.contains('com.google.inject:guice')
+    store.output.contains('com.google.guava:guava')
+    hit.output.contains('Reusing configuration cache')
+    !hit.output.contains('com.google.inject:guice')
+    hit.output.contains('com.google.guava:guava')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A Kotlin filter calling a function its own build script declares still filters the report"() {
+    given: 'the filter written so that the lambda holds the script, as a rule written that way does'
+    kotlinFilteringComposite()
+
+    when:
+    def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the report is filtered, and the cache gives way rather than the build failing to store it'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    !result.output.contains('com.google.inject:guice')
+    result.output.contains('com.google.guava:guava')
+    result.output.contains('Configuration cache entry discarded')
+    result.output.contains('filterDeclaredConfigurations')
+  }
+
+  /** The filtering composite with a Kotlin build script whose filter reads what the script declares. */
+  private void kotlinFilteringComposite() {
+    testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
+    testProjectDir.newFile('build.gradle.kts') <<
+      """
+        import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
+        import org.gradle.api.specs.Spec
+
+        buildscript {
+          dependencies {
+            classpath(files(${classpathString.replace("'", '"')}))
+          }
+        }
+
+        apply(plugin = "io.github.ben-manes.versions")
+        apply(plugin = "java")
+
+        fun String.isReported(): Boolean = this != "tool"
+
+        repositories {
+          maven {
+            url = uri("${mavenRepoUrl}")
+          }
+        }
+
+        dependencies {
+          add("dependencyUpdatesAggregation", "com.example:child:1.0")
+          add("implementation", "com.google.guava:guava:15.0")
+        }
+
+        tasks.named("dependencyUpdates", DependencyUpdatesTask::class.java) {
+          filterDeclaredConfigurations = Spec<String> { it.isReported() }
+        }
+      """.stripIndent()
+    judgedChild()
+  }
+
+  /** An aggregating build that filters by a name only the build it includes declares. */
+  private String filteringOuter() {
+    return """
+        apply plugin: 'java'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+          implementation 'com.google.guava:guava:15.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          filterDeclaredConfigurations { it != 'tool' }
+        }
+      """
+  }
+
   @Unroll
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A composite judges the same rows with the cache as without it, #declared"() {
