@@ -1685,6 +1685,35 @@ final class CompositeBuildSpec extends Specification {
     judgedChild()
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A Kotlin rule calling a buildSrc helper keeps the configuration cache"() {
+    given: 'the helper moved out of the build script, which is the remedy the warning names'
+    kotlinJudgedComposite('candidate.version.isRejected()')
+    testProjectDir.newFolder('buildSrc', 'src', 'main', 'java')
+    testProjectDir.newFile('buildSrc/src/main/java/Stability.java') <<
+      """
+        public final class Stability {
+          public static boolean isRejected(String version) {
+            return "3.1".equals(version);
+          }
+        }
+      """.stripIndent()
+    def script = new File(testProjectDir.root, 'build.gradle.kts')
+    script.text = script.text
+      .replace('fun String.isRejected(): Boolean = this == "3.1"', '')
+      .replace('candidate.version.isRejected()', 'Stability.isRejected(candidate.version)')
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the rule holds a compiled class rather than the script, so the entry is kept and reused'
+    store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !store.output.contains('Configuration cache entry discarded')
+    hit.output.contains('Reusing configuration cache')
+    hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+  }
+
   /**
    * The same composite with a Kotlin build script, whose rule is written as the README's own recipe
    * is: a call to a function the script declares. Such a call binds the script into the lambda.
