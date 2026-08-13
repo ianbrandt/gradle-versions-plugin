@@ -597,8 +597,28 @@ final class CompositeBuildSpec extends Specification {
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
   }
 
+  def 'Aggregates an included build that writes its results to a custom build directory'() {
+    given:
+    aggregatedIncludedBuild(
+      "dependencyUpdatesAggregation 'com.example:child:1.0'",
+      'layout.buildDirectory = layout.projectDirectory.dir("out-of-tree")',
+    )
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+    // Asserted so that the case still distinguishes if the override ever stops taking effect: the
+    // results are resolved as artifacts, so a build directory the aggregator cannot guess is moot.
+    new File(testProjectDir.root, 'child/out-of-tree').directory
+    !new File(testProjectDir.root, 'child/build').exists()
+  }
+
   /** Writes a build that aggregates an included build of two projects, each with an update. */
-  private void aggregatedIncludedBuild(String aggregated) {
+  private void aggregatedIncludedBuild(String aggregated, String childSettings = '') {
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -640,6 +660,8 @@ final class CompositeBuildSpec extends Specification {
             canBeResolved = true
             canBeConsumed = false
           }
+
+          ${childSettings}
         }
 
         dependencies {
