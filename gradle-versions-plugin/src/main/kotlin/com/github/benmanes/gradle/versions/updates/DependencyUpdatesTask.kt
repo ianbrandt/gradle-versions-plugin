@@ -422,7 +422,8 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
       "The dependency updates report of $projectPath gave up its configuration cache entry: a " +
         "rejectVersionIf, resolutionStrategy or filterDeclaredConfigurations rule reads something " +
         "its own build script declares, which the cache cannot store for a report that judges " +
-        "another build's dependencies. Declare the rule's helpers in buildSrc to keep the entry.",
+        "another build's dependencies. Declare the rule's helpers as a compiled class, in buildSrc " +
+        "or an included build, to keep the entry.",
     )
   }
 

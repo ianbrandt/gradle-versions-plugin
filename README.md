@@ -964,7 +964,8 @@ hand-rolled recipe needs extending.
 In a build that merges an included build's entries, declaring `isNonStable` in
 the build script costs that report its configuration cache entry, since the
 rule then holds the script (see [Composite builds](#composite-builds)). Move
-the helper to `buildSrc` there. A Groovy build is unaffected.
+the helper into a compiled class there, in `buildSrc` or an included build. A
+Groovy build is unaffected.
 
 You can then configure [Component Selection
 Rules](https://docs.gradle.org/current/userguide/dynamic_versions.html#sec:component_selection_rules).
@@ -2196,7 +2197,10 @@ A report that judges another build's entries carries its rules into the
 configuration cache. A Kotlin rule that calls a function its own build script
 declares holds the script inside the rule, which the cache cannot store, so the
 report gives up its cache entry and names the project in a warning. Declare the
-rule's helpers in `buildSrc` to keep the entry. A Groovy closure is unaffected.
+rule's helpers as a compiled class, in `buildSrc` or an included build, to keep
+the entry. A helper declared beside the rule in a precompiled script plugin does
+not qualify: that script's own top level functions are members of it, so the
+rule holds that script instead. A Groovy closure is unaffected.
 
 #### Per-project reports
 
@@ -2523,8 +2527,9 @@ to the entries it merges from an included build:
 >   included build's own settings decided it before.
 > - A report that merges an included build's entries gives up its configuration
 >   cache entry when a Kotlin rule calls a function its own build script
->   declares, as the `isNonStable` recipe does. Move the helper to `buildSrc` to
->   keep the entry. A Groovy build is unaffected.
+>   declares, as the `isNonStable` recipe does. Move the helper into a compiled
+>   class, in `buildSrc` or an included build, to keep the entry. A Groovy build
+>   is unaffected.
 
 > [!TIP]
 > - The `isNonStable` recipe formerly recommended here can be dropped, along with
