@@ -2138,12 +2138,14 @@ An included build's report can instead be merged into this build's report, by
 declaring the build in the `dependencyUpdatesAggregation` configuration of the
 project that aggregates. Declare it by the coordinates that the include
 substitutes, and apply the plugin in the included build, so that a report exists
-to merge. Each declaration brings every project of that build, where it brought
-the one project its coordinates resolved to before. It stops at that build's own
-boundary: a build that the declared build includes in turn needs a declaration
-of its own, which reaches it however deeply it is included. A project of this
-build that the aggregating project's own tree does not cover, such as a sibling,
-is declared the same way:
+to merge. Each declaration brings the project its coordinates resolve to and
+every project that one aggregates, where it brought that project alone before. A
+build's root project aggregates its whole build, so the root's coordinates bring
+all of it and a subproject's coordinates bring only what that subproject
+aggregates. It stops at that build's own boundary: a build that the declared
+build includes in turn needs a declaration of its own, which reaches it however
+deeply it is included. A project of this build that the aggregating project's
+own tree does not cover, such as a sibling, is declared the same way:
 
 <details open>
 <summary>Kotlin</summary>

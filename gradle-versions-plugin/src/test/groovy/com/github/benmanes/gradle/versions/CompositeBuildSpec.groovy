@@ -485,6 +485,23 @@ final class CompositeBuildSpec extends Specification {
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
   }
 
+  def 'Aggregates what a named project of an included build aggregates, not its whole build'() {
+    given:
+    aggregatedIncludedBuild("dependencyUpdatesAggregation 'com.example:sub:1.0'")
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    // ':child:sub' declares this one, and aggregates no project of its own.
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+    // The child's root project declares this one. Naming a subproject leaves the root out, where
+    // naming the root would bring the subproject: a project brings what it aggregates, and only a
+    // build's root project aggregates that whole build.
+    !result.output.contains('com.google.guava')
+  }
+
   def 'Reports a project of an included build once when named with the build it belongs to'() {
     given:
     aggregatedIncludedBuild(
