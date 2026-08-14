@@ -8,6 +8,7 @@ import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import spock.lang.Issue
 import spock.lang.Specification
+import spock.lang.Unroll
 
 /**
  * A specification for the {@code checkVersionStability} task property, and its
@@ -39,7 +40,8 @@ final class CheckVersionStabilitySpec extends Specification {
     mavenRepoUrl = getClass().getResource('/maven/').toURI()
   }
 
-  private File writeBuildFile() {
+  private File writeBuildFile(String module = 'com.probe:unstable-ceiling') {
+    def declared = module == 'com.example:snapshot-mixed' ? '1.0-SNAPSHOT' : '1.0'
     def file = testProjectDir.newFile('build.gradle')
     file <<
       """
@@ -59,7 +61,7 @@ final class CheckVersionStabilitySpec extends Specification {
         }
 
         dependencies {
-          implementation 'com.probe:unstable-ceiling:1.0'
+          implementation '${module}:${declared}'
         }
 
         tasks.named('dependencyUpdates').configure {
@@ -87,6 +89,49 @@ final class CheckVersionStabilitySpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     report.outdated.dependencies*.name == ['unstable-ceiling']
     report.outdated.dependencies[0].available.release == '2.0'
+  }
+
+  @Unroll
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
+  def 'Against a Maven-only graph, #module at revision #revision with stability #stability offers #expected'() {
+    given: 'poms that carry no status, so Gradle calls every non-SNAPSHOT version a release'
+    buildFile = writeBuildFile(module)
+
+    when:
+    def args = ['dependencyUpdates', "-Drevision=${revision}"]
+    if (stability) {
+      args += '-DcheckVersionStability'
+    }
+    def result = GradleRunner.create()
+      .withProjectDir(testProjectDir.root)
+      .withArguments(args as String[])
+      .withPluginClasspath()
+      .build()
+    def report = new JsonSlurper().parseText(new File(reportFolder, 'report.json').text)
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    report.outdated.dependencies[0].available[revision] == expected
+
+    where:
+    // 'unstable-ceiling' offers 1.0, 2.0 and the pre-release 3.0-Beta1; 'snapshot-mixed' offers
+    // 1.0-SNAPSHOT, 1.5 and 2.0-SNAPSHOT. The guard narrows exactly one combination: a release
+    // revision whose ceiling is a pre-release string that a bare pom leaves indistinguishable from
+    // a release. It is inert everywhere the version string already meets the revision asked for,
+    // including a Beta under 'milestone', which is the level that admits one.
+    module                       | revision      | stability || expected
+    'com.probe:unstable-ceiling' | 'release'     | false     || '3.0-Beta1'
+    'com.probe:unstable-ceiling' | 'release'     | true      || '2.0'
+    'com.probe:unstable-ceiling' | 'milestone'   | false     || '3.0-Beta1'
+    'com.probe:unstable-ceiling' | 'milestone'   | true      || '3.0-Beta1'
+    'com.probe:unstable-ceiling' | 'integration' | false     || '3.0-Beta1'
+    'com.probe:unstable-ceiling' | 'integration' | true      || '3.0-Beta1'
+    'com.example:snapshot-mixed' | 'release'     | false     || '1.5'
+    'com.example:snapshot-mixed' | 'release'     | true      || '1.5'
+    'com.example:snapshot-mixed' | 'milestone'   | false     || '1.5'
+    'com.example:snapshot-mixed' | 'milestone'   | true      || '1.5'
+    'com.example:snapshot-mixed' | 'integration' | false     || '2.0-SNAPSHOT'
+    'com.example:snapshot-mixed' | 'integration' | true      || '2.0-SNAPSHOT'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
