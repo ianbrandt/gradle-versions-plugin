@@ -572,8 +572,10 @@ The following dependencies have later milestone versions:
 
 Failed to determine the latest version for the following dependencies (use --info for details):
  - com.github.ben-manes:unresolvable:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable:+ as no versions of com.github.ben-manes:unresolvable are available.
      Life is hard
  - com.github.ben-manes:unresolvable2:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable2:+ as no versions of com.github.ben-manes:unresolvable2 are available.
 """.replace('\r', '').replace('\n', System.lineSeparator())
     def actual = reportFile.text
 
@@ -661,9 +663,12 @@ The following dependencies have later milestone versions:
 
 Failed to determine the latest version for the following dependencies (use --info for details):
  - com.github.ben-manes:unresolvable:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable:+ as no versions of com.github.ben-manes:unresolvable are available.
      Life is hard
  - com.github.ben-manes:unresolvable2:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable2:+ as no versions of com.github.ben-manes:unresolvable2 are available.
  - com.github.ben-manes:unresolvable3:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable3:+ as no versions of com.github.ben-manes:unresolvable3 are available.
 """.replace('\r', '').replace('\n', System.lineSeparator())
 
     then:

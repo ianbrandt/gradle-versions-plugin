@@ -1482,7 +1482,9 @@ Failed to compare versions for the following dependencies because they were decl
 
 Failed to determine the latest version for the following dependencies (use --info for details):
  - com.github.ben-manes:unresolvable:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable:+ as no versions of com.github.ben-manes:unresolvable are available.
  - com.github.ben-manes:unresolvable2:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable2:+ as no versions of com.github.ben-manes:unresolvable2 are available.
  - com.google.guava:guava:15.0
      https://github.com/google/guava
  - dom4j:dom4j
