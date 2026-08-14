@@ -502,6 +502,118 @@ final class CompositeBuildSpec extends Specification {
     !result.output.contains('com.google.guava')
   }
 
+  def 'Aggregates an included build from a Kotlin build script'() {
+    given: "the README's own Kotlin snippet, whose typed accessor exists only if the plugin created the configuration first"
+    testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
+    testProjectDir.newFile('build.gradle.kts') <<
+      """
+        plugins {
+          id("io.github.ben-manes.versions")
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation("com.example:child:1.0")
+        }
+      """.stripIndent()
+    coordinatedChild()
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+  }
+
+  def 'Aggregates an included build from a report the settings plugin registered'() {
+    given: 'the aggregating build applies from its settings, while the included build applies per project'
+    testProjectDir.newFile('settings.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions.settings'
+        }
+
+        includeBuild 'child'
+      """.stripIndent()
+    testProjectDir.newFile('build.gradle') <<
+      """
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+      """.stripIndent()
+    coordinatedChild()
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+  }
+
+  def 'Judges an included build that configures nothing by the aggregating reports own settings'() {
+    given: 'a child declaring a module whose ceiling is a pre-release string, and setting no rules of its own'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+          revision = 'release'
+          checkVersionStability = true
+        }
+      """.stripIndent()
+    coordinatedChild('com.probe:unstable-ceiling:1.0')
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the child's row is held to the report's own revision and stability opt-in, not to the defaults it was resolved under"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.probe:unstable-ceiling [1.0 -> 2.0]')
+  }
+
+  /** Writes an included build that publishes by the coordinates an aggregation entry names. */
+  private void coordinatedChild(String dependency = 'com.google.guava:guava:15.0') {
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'\n"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool '${dependency}'
+        }
+      """.stripIndent()
+  }
+
   def 'Reports a project of an included build once when named with the build it belongs to'() {
     given:
     aggregatedIncludedBuild(
