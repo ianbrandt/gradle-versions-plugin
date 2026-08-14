@@ -2132,7 +2132,10 @@ tasks.register("allDependencyUpdates") {
 
 Every included build needs the plugin applied for its `dependencyUpdates` task
 to exist. A build that must stay unmodified can have the plugin injected by an
-[init script](#initialization-script) instead.
+[init script](#initialization-script) instead. Apply one version of the plugin
+across the builds a report spans: a merged report reads what each build wrote,
+and a build writing it in a format newer than the reading build knows fails
+that report by name.
 
 An included build's report can instead be merged into this build's report, by
 declaring the build in the `dependencyUpdatesAggregation` configuration of the

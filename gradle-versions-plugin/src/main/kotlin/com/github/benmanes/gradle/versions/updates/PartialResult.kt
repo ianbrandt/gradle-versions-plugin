@@ -213,7 +213,9 @@ data class PartialResult
       fun fromJson(json: String): PartialResult {
         val result = requireNotNull(adapter.fromJson(json)) { "Empty partial result" }
         require(result.formatVersion in 1..FORMAT_VERSION) {
-          "Unsupported partial result format ${result.formatVersion}, expected 1..$FORMAT_VERSION; re-run the build"
+          "Unsupported partial result format ${result.formatVersion} for '${result.projectPath}', " +
+            "expected 1..$FORMAT_VERSION. It was written by a newer version of the plugin than the " +
+            "report reading it; apply one version of the plugin across every project and included build."
         }
         return result
       }
