@@ -39,6 +39,10 @@ final class CheckPreReleaseVersionsSpec extends Specification {
   }
 
   private File writeBuildFile(String dependency, String taskConfig = '') {
+    return writeDeclarations("implementation '$dependency'", taskConfig)
+  }
+
+  private File writeDeclarations(String declarations, String taskConfig) {
     def file = testProjectDir.newFile('build.gradle')
     file <<
       """
@@ -58,11 +62,39 @@ final class CheckPreReleaseVersionsSpec extends Specification {
         }
 
         dependencies {
-          implementation '$dependency'
+          $declarations
         }
 
         tasks.named('dependencyUpdates').configure {
           outputFormatter = 'json'
+          checkForGradleUpdate = false
+          $taskConfig
+        }
+        """.stripIndent()
+    return file
+  }
+
+  private File writeKotlinBuildFile(String declarations, String taskConfig) {
+    def file = testProjectDir.newFile('build.gradle.kts')
+    file <<
+      """
+        import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
+
+        plugins {
+          java
+          id("io.github.ben-manes.versions")
+        }
+
+        repositories {
+          maven(url = "${mavenRepoUrl}")
+        }
+
+        dependencies {
+          $declarations
+        }
+
+        tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
+          outputFormatter = "json"
           checkForGradleUpdate = false
           $taskConfig
         }
@@ -283,6 +315,52 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     then:
     report.outdated.dependencies*.name == ['prerelease-widget']
     report.outdated.dependencies[0].available.milestone == '1.2-beta'
+  }
+
+  def 'a Groovy rule reading isPreRelease leaves out what the property would, and no more'() {
+    given: 'the property is off, so the rule is the only thing that can reject'
+    writeDeclarations(
+      '''
+          implementation 'com.example:prerelease-widget:1.0'
+          implementation 'com.example:prerelease-peer:1.0-alpha'
+        ''',
+      '''
+          rejectPreReleaseVersions = false
+          rejectVersionIf {
+            isPreRelease(candidate.version) && !isPreRelease(currentVersion)
+          }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then: 'the widget loses its pre-release, and the peer, already on one, keeps its upgrade'
+    report.current.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies*.name == ['prerelease-peer']
+    report.outdated.dependencies[0].available.milestone == '1.0-beta'
+  }
+
+  def 'a Kotlin rule reading isPreRelease leaves out what the property would, and no more'() {
+    given:
+    writeKotlinBuildFile(
+      '''
+          implementation("com.example:prerelease-widget:1.0")
+          implementation("com.example:prerelease-peer:1.0-alpha")
+        ''',
+      '''
+          rejectPreReleaseVersions = false
+          rejectVersionIf {
+            isPreRelease(candidate.version) && !isPreRelease(currentVersion)
+          }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.current.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies*.name == ['prerelease-peer']
+    report.outdated.dependencies[0].available.milestone == '1.0-beta'
   }
 
   def 'a qualifier not in the built-in markers is passed through'() {

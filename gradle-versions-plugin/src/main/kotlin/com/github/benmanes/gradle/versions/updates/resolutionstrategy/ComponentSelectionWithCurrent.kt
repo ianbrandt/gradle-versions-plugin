@@ -1,6 +1,7 @@
 package com.github.benmanes.gradle.versions.updates.resolutionstrategy
 
 import com.github.benmanes.gradle.versions.updates.VersionMapping
+import com.github.benmanes.gradle.versions.updates.VersionStability
 import org.gradle.api.artifacts.ComponentSelection
 import org.gradle.api.artifacts.VersionConstraint
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.DefaultVersionComparator
@@ -92,6 +93,24 @@ class ComponentSelectionWithCurrent internal constructor(
         candidate.version,
         onScriptClasspath,
       )
+
+  /**
+   * Returns whether [version] is a pre-release, by the same markers the task's
+   * `rejectPreReleaseVersions` property applies, so a rule written with it leaves out what the
+   * property leaves out. Takes the version to read, since a rule usually asks it of the candidate
+   * and of the version in use in turn.
+   */
+  fun isPreRelease(version: String): Boolean = VersionStability.isPreRelease(version)
+
+  /**
+   * Returns whether the candidate is an upgrade lying outside the declared bound, which is what the
+   * task's `rejectOutOfBoundVersions` property leaves out of the report.
+   *
+   * A function rather than a property, so that a Groovy closure and a Kotlin lambda call it alike.
+   * A `val` reads without parentheses in Kotlin and as `outOfDeclaredBound` in Groovy, which would
+   * leave the two documented spellings different.
+   */
+  fun isOutOfDeclaredBound(): Boolean = isUpgradeOutOfDeclaredBound
 
   override fun toString(): String {
     return """\
