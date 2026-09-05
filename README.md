@@ -790,15 +790,16 @@ options](#command-line-options)).
 
 Both built-in checks are readable from a rule, so a policy that is the built-in
 one with an exception does not have to restate the check itself.
-`isPreRelease(version)` answers the pre-release check above for the version
-passed to it, any convention added with `preReleaseVersionIf` included, and the
-current-version exemption is the rule's own second call.
-`isOutOfDeclaredBound()` answers the bound check (see [Respecting declared
-bounds](#respecting-declared-bounds)) for the candidate. Turn the two
-properties off and let the rule apply them, with the exception written into it.
-Under `--no-reject-pre-release-versions` or `--no-reject-out-of-bound-versions`
-the matching member answers `false` for that run, so a single run still shows
-what the rule leaves out.
+`isPreRelease()` answers the pre-release check above for the candidate: true
+when the candidate is a pre-release, any convention added with
+`preReleaseVersionIf` included, and the current version is not.
+`isPreRelease(version)` is the version-level test behind it, for a rule that
+asks it of some other version. `isOutOfDeclaredBound()` answers the bound check
+(see [Respecting declared bounds](#respecting-declared-bounds)) for the
+candidate. Turn the two properties off and let the rule apply them, with the
+exception written into it. Under `--no-reject-pre-release-versions` or
+`--no-reject-out-of-bound-versions` the matching member answers `false` for
+that run, so a single run still shows what the rule leaves out.
 Here one module is allowed both its pre-releases and the versions its
 declaration bounds out, while every other module is held to the same two
 checks:
@@ -813,8 +814,7 @@ tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
   rejectPreReleaseVersions = false
   rejectOutOfBoundVersions = false
   rejectVersionIf {
-    candidate.module != "guava" &&
-      ((isPreRelease(candidate.version) && !isPreRelease(currentVersion)) || isOutOfDeclaredBound())
+    candidate.module != "guava" && (isPreRelease() || isOutOfDeclaredBound())
   }
 }
 ```
@@ -829,8 +829,7 @@ tasks.named("dependencyUpdates").configure {
   rejectPreReleaseVersions = false
   rejectOutOfBoundVersions = false
   rejectVersionIf {
-    candidate.module != 'guava' &&
-      ((isPreRelease(candidate.version) && !isPreRelease(currentVersion)) || isOutOfDeclaredBound())
+    candidate.module != 'guava' && (isPreRelease() || isOutOfDeclaredBound())
   }
 }
 ```

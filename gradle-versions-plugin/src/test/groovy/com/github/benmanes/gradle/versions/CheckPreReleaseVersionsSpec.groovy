@@ -398,6 +398,52 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies.isEmpty()
   }
 
+  def 'a Groovy rule reading isPreRelease with no argument leaves out what the property would, and no more'() {
+    given: 'the property is off, so the rule is the only thing that can reject'
+    writeDeclarations(
+      '''
+          implementation 'com.example:prerelease-widget:1.0'
+          implementation 'com.example:prerelease-peer:1.0-alpha'
+        ''',
+      '''
+          rejectPreReleaseVersions = false
+          rejectVersionIf {
+            isPreRelease()
+          }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then: 'the widget loses its pre-release, and the peer, already on one, keeps its upgrade'
+    report.current.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies*.name == ['prerelease-peer']
+    report.outdated.dependencies[0].available.milestone == '1.0-beta'
+  }
+
+  def 'a Kotlin rule reading isPreRelease with no argument leaves out what the property would, and no more'() {
+    given:
+    writeKotlinBuildFile(
+      '''
+          implementation("com.example:prerelease-widget:1.0")
+          implementation("com.example:prerelease-peer:1.0-alpha")
+        ''',
+      '''
+          rejectPreReleaseVersions = false
+          rejectVersionIf {
+            isPreRelease()
+          }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.current.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies*.name == ['prerelease-peer']
+    report.outdated.dependencies[0].available.milestone == '1.0-beta'
+  }
+
   def 'the README exception snippet compiles and applies under the Kotlin DSL'() {
     given: 'one bounded module exempted, beside a module each check still holds'
     writeKotlinBuildFile(
@@ -420,8 +466,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
           rejectPreReleaseVersions = false
           rejectOutOfBoundVersions = false
           rejectVersionIf {
-            candidate.module != "guice" &&
-              ((isPreRelease(candidate.version) && !isPreRelease(currentVersion)) || isOutOfDeclaredBound())
+            candidate.module != "guice" && (isPreRelease() || isOutOfDeclaredBound())
           }
         ''')
 

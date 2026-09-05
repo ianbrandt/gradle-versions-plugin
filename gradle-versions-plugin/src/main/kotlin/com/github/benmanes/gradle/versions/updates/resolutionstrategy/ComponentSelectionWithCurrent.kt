@@ -109,6 +109,16 @@ class ComponentSelectionWithCurrent internal constructor(
   fun isPreRelease(version: String): Boolean = preReleaseCheck(version)
 
   /**
+   * Returns whether the candidate is a pre-release while the version in use is not, which is what the
+   * task's `rejectPreReleaseVersions` property leaves out of the report. Narrower than
+   * [isPreRelease] of the candidate alone: a build already on a pre-release is shown the next one,
+   * so for it this answers false. The same as `isPreRelease(candidate.version) &&
+   * !isPreRelease(currentVersion)`, and false for a run invoked with
+   * `--no-reject-pre-release-versions`, as the one-argument form is.
+   */
+  fun isPreRelease(): Boolean = preReleaseCheck(candidate.version) && !preReleaseCheck(currentVersion)
+
+  /**
    * Returns whether the candidate is an upgrade lying outside the declared bound, which is what the
    * task's `rejectOutOfBoundVersions` property leaves out of the report. Answers false for a run
    * invoked with `--no-reject-out-of-bound-versions`, so that option shows the versions a rule built
