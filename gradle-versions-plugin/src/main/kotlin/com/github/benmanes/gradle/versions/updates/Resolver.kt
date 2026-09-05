@@ -36,6 +36,7 @@ import org.gradle.api.attributes.HasConfigurableAttributes
 import org.gradle.api.attributes.java.TargetJvmVersion
 import org.gradle.api.internal.artifacts.DefaultModuleVersionIdentifier
 import org.gradle.api.internal.artifacts.dependencies.DefaultProjectDependencyConstraint
+import org.gradle.api.specs.Spec
 import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier
 import org.gradle.maven.MavenModule
 import org.gradle.maven.MavenPomArtifact
@@ -52,6 +53,8 @@ class Resolver internal constructor(
   private val checkConstraints: Boolean,
   private val rejectOutOfBoundVersions: Boolean,
   private val rejectPreReleaseVersions: Boolean,
+  /** The convention added to the pre-release check in the build, null when none is configured. */
+  preReleaseVersionIf: Spec<String>?,
   /** Called when a rule reads the deprecated bound, so the warning is printed once per project. */
   private val onDeprecatedBoundRead: () -> Unit,
 ) {
@@ -69,8 +72,20 @@ class Resolver internal constructor(
     checkConstraints,
     rejectOutOfBoundVersions = true,
     rejectPreReleaseVersions = true,
+    preReleaseVersionIf = null,
     onDeprecatedBoundRead = deprecatedBoundWarning(project),
   )
+
+  /**
+   * Whether a version is a pre-release, by the built-in markers or by the convention added in the
+   * build. Read by the built-in filter and by a rule calling `isPreRelease`, so the two agree.
+   */
+  private val isPreRelease: (String) -> Boolean =
+    if (preReleaseVersionIf == null) {
+      VersionStability::isPreRelease
+    } else {
+      { version -> VersionStability.isPreRelease(version) || preReleaseVersionIf.isSatisfiedBy(version) }
+    }
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
 
@@ -417,12 +432,12 @@ class Resolver internal constructor(
 
   /**
    * Adds the filter that leaves out a pre-release candidate while the current version is a release,
-   * which [VersionStability.isLessStable] computes. Registered ahead of the revision filter for the
-   * reason given on [addDeclaredBoundFilter], and on the configuration rather than through
-   * [DependencyUpdatesTask.rejectVersionIf]: that setter marks the task's parameters as having a
-   * resolution strategy, and a project marked that way is resolved with its own strategy instead
-   * of its nearest ancestor's, so routing this filter through it would stop every subproject
-   * inheriting the root's `rejectVersionIf`.
+   * which [isPreRelease] answers for the candidate and for the current version. Registered ahead of
+   * the revision filter for the reason given on [addDeclaredBoundFilter], and on the configuration
+   * rather than through [DependencyUpdatesTask.rejectVersionIf]: that setter marks the task's
+   * parameters as having a resolution strategy, and a project marked that way is resolved with its
+   * own strategy instead of its nearest ancestor's, so routing this filter through it would stop
+   * every subproject inheriting the root's `rejectVersionIf`.
    */
   private fun addPreReleaseFilter(
     configuration: Configuration,
@@ -435,7 +450,7 @@ class Resolver internal constructor(
       ResolutionStrategyWithCurrent(inner, currentCoordinates).componentSelection { rules ->
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
-            if (VersionStability.isLessStable(current.candidate.version, current.currentVersion)) {
+            if (isPreRelease(current.candidate.version) && !isPreRelease(current.currentVersion)) {
               current.reject("Pre-release rejected by rejectPreReleaseVersions")
             }
           },
@@ -451,7 +466,7 @@ class Resolver internal constructor(
   ) {
     configuration.resolutionStrategy { inner ->
       resolutionStrategy?.execute(
-        ResolutionStrategyWithCurrent(inner, currentCoordinates, onDeprecatedBoundRead),
+        ResolutionStrategyWithCurrent(inner, currentCoordinates, onDeprecatedBoundRead, isPreRelease),
       )
     }
   }

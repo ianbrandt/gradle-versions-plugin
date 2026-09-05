@@ -90,6 +90,9 @@ internal class DependencyUpdatesParameters {
   @Transient
   var resolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
 
+  @Transient
+  var preReleaseVersionIf: Spec<String>? = null
+
   /** Distinguishes a strategy that was explicitly cleared from one that was never set. */
   var resolutionStrategySet: Boolean = false
   var checkConstraints: Boolean? = null
@@ -172,6 +175,7 @@ internal abstract class DependencyUpdatesParametersService :
       filterDeclaredConfigurations =
         chain.firstNotNullOfOrNull { it.filterDeclaredConfigurations } ?: ALL_DECLARED_CONFIGURATIONS,
       resolutionStrategy = chain.firstOrNull { it.resolutionStrategySet }?.resolutionStrategy,
+      preReleaseVersionIf = chain.firstNotNullOfOrNull { it.preReleaseVersionIf },
       checkConstraints =
         settingOf(
           fromCommandLine = chain.firstNotNullOfOrNull { it.checkConstraintsFromCommandLine },
@@ -219,6 +223,7 @@ internal class ResolvedParameters(
   val filterConfigurations: Spec<Configuration>,
   val filterDeclaredConfigurations: Spec<String>,
   val resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
+  val preReleaseVersionIf: Spec<String>?,
   val checkConstraints: Boolean,
   val checkBuildEnvironmentConstraints: Boolean,
   val rejectOutOfBoundVersions: Boolean,
@@ -629,6 +634,7 @@ private fun statusesOf(
       checkConstraints = checkConstraints,
       rejectOutOfBoundVersions = parameters.rejectOutOfBoundVersions,
       rejectPreReleaseVersions = parameters.rejectPreReleaseVersions,
+      preReleaseVersionIf = parameters.preReleaseVersionIf,
       onDeprecatedBoundRead = onDeprecatedBoundRead,
     )
   // Snapshotted for every configuration before the first resolution, as resolving one

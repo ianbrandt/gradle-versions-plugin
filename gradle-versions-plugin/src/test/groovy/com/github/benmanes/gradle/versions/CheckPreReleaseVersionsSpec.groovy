@@ -12,8 +12,8 @@ import spock.lang.Specification
 /**
  * With {@code rejectPreReleaseVersions}, on by default, a pre-release candidate is left out of the
  * report unless the current version is itself a pre-release, in which case a newer pre-release is
- * still reported. A convention the built-in markers do not cover goes in a {@code rejectVersionIf}
- * filter, which is applied in addition to the built-in check.
+ * still reported. A convention the built-in markers do not cover is added to the check with
+ * {@code preReleaseVersionIf}, so the property and its option govern it too.
  */
 @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
 final class CheckPreReleaseVersionsSpec extends Specification {
@@ -282,6 +282,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
         subprojects {
           apply plugin: 'java'
+          apply plugin: 'io.github.ben-manes.versions'
 
           repositories {
             maven {
@@ -410,6 +411,106 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then:
     report.outdated.dependencies*.name == ['prerelease-flagged']
-    report.outdated.dependencies[0].available.milestone == '2.0-flagged'
+    report.outdated.dependencies[0].available.milestone == '3.0-flagged'
+  }
+
+  def 'preReleaseVersionIf adds a convention to the built-in check'() {
+    given:
+    writeBuildFile('com.example:prerelease-flagged:1.0', "preReleaseVersionIf { it.endsWith('-flagged') }")
+
+    when:
+    def report = runReport()
+
+    then:
+    report.current.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies.isEmpty()
+  }
+
+  def 'a build already on a version the added convention matches is still shown a newer one'() {
+    given:
+    writeBuildFile('com.example:prerelease-flagged:2.0-flagged', "preReleaseVersionIf { it.endsWith('-flagged') }")
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies[0].available.milestone == '3.0-flagged'
+  }
+
+  def 'the command line option turns off the added convention with the built-in check'() {
+    given:
+    writeBuildFile('com.example:prerelease-flagged:1.0', "preReleaseVersionIf { it.endsWith('-flagged') }")
+
+    when:
+    def report = runReport(['--no-reject-pre-release-versions'])
+
+    then:
+    report.outdated.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies[0].available.milestone == '3.0-flagged'
+  }
+
+  def 'a rule reading isPreRelease answers for the added convention'() {
+    given: 'the property is off, so the rule is the only thing that can reject'
+    writeBuildFile('com.example:prerelease-flagged:1.0', '''
+          rejectPreReleaseVersions = false
+          preReleaseVersionIf { it.endsWith('-flagged') }
+          rejectVersionIf {
+            isPreRelease(candidate.version) && !isPreRelease(currentVersion)
+          }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.current.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies.isEmpty()
+  }
+
+  def 'a subproject inherits preReleaseVersionIf from the root task'() {
+    given:
+    writeMultiProjectBuild('com.example:prerelease-flagged:1.0', "preReleaseVersionIf { it.endsWith('-flagged') }")
+
+    when:
+    def report = runReport()
+
+    then:
+    report.current.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies.isEmpty()
+  }
+
+  def 'preReleaseVersionIf compiles and applies under the Kotlin DSL'() {
+    given:
+    writeKotlinBuildFile(
+      'implementation("com.example:prerelease-flagged:1.0")',
+      'preReleaseVersionIf { it.endsWith("-flagged") }')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.current.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies.isEmpty()
+  }
+
+  def 'conventions added in two calls both apply'() {
+    given: 'the second call names the guava release the built-in markers pass through'
+    writeDeclarations(
+      '''
+          implementation 'com.example:prerelease-flagged:1.0'
+          implementation 'com.google.guava:guava:15.0'
+        ''',
+      '''
+          preReleaseVersionIf { it.endsWith('-flagged') }
+          preReleaseVersionIf { it == '16.0' }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.current.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
+    report.outdated.dependencies.isEmpty()
   }
 }

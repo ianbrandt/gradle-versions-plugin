@@ -171,7 +171,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
 
     where:
     hook << ['rejectVersionIf', 'resolutionStrategy', 'filterConfigurations', 'checkConstraints',
-             'revision', 'filterDeclaredConfigurations']
+             'revision', 'filterDeclaredConfigurations', 'preReleaseVersionIf']
     settings << [
       '''
         rejectVersionIf {
@@ -206,6 +206,11 @@ final class AggregationConfigurationCacheSpec extends Specification {
           it != 'pluginClasspath'
         }
       ''',
+      '''
+        preReleaseVersionIf {
+          it == '3.1'
+        }
+      ''',
     ]
     present << [
       ['com.google.inject:guice [2.0 -> 3.0]'],
@@ -217,6 +222,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
       ['The following dependencies have later release versions:',
        'com.google.inject:guice [2.0 -> 3.1]'],
       ['com.google.inject:guice [2.0 -> 3.1]'],
+      ['com.google.inject:guice [2.0 -> 3.0]'],
     ]
     absent << [
       ['com.google.inject:guice [2.0 -> 3.1]'],
@@ -225,6 +231,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
       [],
       ['The following dependencies have later milestone versions:'],
       ['org.apache.logging.log4j:log4j-core'],
+      ['com.google.inject:guice [2.0 -> 3.1]'],
     ]
   }
 

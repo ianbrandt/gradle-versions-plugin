@@ -299,9 +299,9 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   /**
    * Whether a pre-release candidate is left out of the report while the current version is not
    * itself a pre-release, so that newer pre-releases are still reported to a build on one. A
-   * convention the built-in markers do not cover goes in a [rejectVersionIf] filter, applied in
-   * addition to this check. Off by default under the `integration` revision, which selects the
-   * newest version whatever its qualifier, and read back as `false` there unless set.
+   * convention the built-in markers do not cover is added to the check with [preReleaseVersionIf].
+   * Off by default under the `integration` revision, which selects the newest version whatever its
+   * qualifier, and read back as `false` there unless set.
    */
   @get:Input
   var rejectPreReleaseVersions: Boolean
@@ -458,6 +458,19 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     } else {
       File(projectDirectory.get().asFile, outputDir)
     }
+  }
+
+  /**
+   * Adds a convention the built-in markers do not cover, such as graphql-java's `-nf-` builds, to
+   * the pre-release check. A version the [filter] matches is a pre-release wherever the check reads
+   * one: it is left out under [rejectPreReleaseVersions] and its command line option, a build already
+   * on one is still shown a newer one, and `isPreRelease` in a [rejectVersionIf] rule answers for it.
+   * Called more than once, the filters accumulate.
+   */
+  fun preReleaseVersionIf(filter: Spec<String>) {
+    val existing = parameters.preReleaseVersionIf
+    parameters.preReleaseVersionIf =
+      if (existing == null) filter else Spec { existing.isSatisfiedBy(it) || filter.isSatisfiedBy(it) }
   }
 
   fun rejectVersionIf(filter: ComponentFilter) {

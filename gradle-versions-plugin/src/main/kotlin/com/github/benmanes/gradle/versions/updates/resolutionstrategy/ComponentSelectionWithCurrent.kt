@@ -27,6 +27,8 @@ class ComponentSelectionWithCurrent internal constructor(
   private val onScriptClasspath: Boolean = false,
   /** Called when a rule reads [satisfiesDeclaredBound], so the deprecation can be warned once. */
   private val onDeprecatedBoundRead: () -> Unit = {},
+  /** The pre-release check [isPreRelease] answers, the built-in markers plus the convention added in the build. */
+  private val preReleaseCheck: (String) -> Boolean = VersionStability::isPreRelease,
 ) : ComponentSelection by delegate {
   /** Retained so the arity released before the constraint was added still links. */
   constructor(
@@ -95,12 +97,13 @@ class ComponentSelectionWithCurrent internal constructor(
       )
 
   /**
-   * Returns whether [version] is a pre-release, by the same markers the task's
-   * `rejectPreReleaseVersions` property applies, so a rule written with it leaves out what the
-   * property leaves out. Takes the version to read, since a rule usually asks it of the candidate
-   * and of the version in use in turn.
+   * Returns whether [version] is a pre-release, by the same check the task's
+   * `rejectPreReleaseVersions` property applies, the built-in markers plus any convention added with
+   * `preReleaseVersionIf`, so a rule written with it leaves out what the property leaves out. Takes
+   * the version to read, since a rule usually asks it of the candidate and of the version in use in
+   * turn.
    */
-  fun isPreRelease(version: String): Boolean = VersionStability.isPreRelease(version)
+  fun isPreRelease(version: String): Boolean = preReleaseCheck(version)
 
   /**
    * Returns whether the candidate is an upgrade lying outside the declared bound, which is what the

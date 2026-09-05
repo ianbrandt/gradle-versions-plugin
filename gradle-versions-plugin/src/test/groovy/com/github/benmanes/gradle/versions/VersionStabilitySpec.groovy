@@ -157,28 +157,6 @@ final class VersionStabilitySpec extends Specification {
     expect: 'ActiveMQ Artemis spells an alpha milestone `.AM27`, and graphql-java stamps a date'
     !VersionStability.isPreRelease('2.0.0.AM27')
     !VersionStability.isPreRelease('230521-nf-execution')
-
-    and: 'so an upgrade to one is reported rather than hidden, which is the fail-open direction'
-    !VersionStability.isLessStable('2.0.0.AM27', '2.0.0')
-    !VersionStability.isLessStable('230521-nf-execution', '221101-nf-execution')
   }
 
-  @Unroll
-  def 'an upgrade from #current to #candidate is rejected: #rejected'() {
-    expect:
-    VersionStability.isLessStable(candidate, current) == rejected
-
-    where:
-    current          | candidate          || rejected
-    '1.0.0'          | '2.0.0-rc1'        || true
-    '1.0.0'          | '2.0.0'            || false
-    // Already on a pre-release, so the next one is reported.
-    '2.0.0-rc1'      | '2.0.0-rc2'        || false
-    '2.0.0-rc1'      | '2.0.0'            || false
-    '9.7.0-rc-1'     | '9.7.0-rc-2'       || false
-    '1.0-SNAPSHOT'   | '2.0-SNAPSHOT'     || false
-    // A release variant is a release on both sides, so nothing is withheld either way.
-    '10.2.0.jre8'    | '10.2.0.jre11'     || false
-    '1.1.17.SP1'     | '1.1.17.SP2'       || false
-  }
 }

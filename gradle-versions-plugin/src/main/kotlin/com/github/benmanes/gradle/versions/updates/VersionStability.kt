@@ -52,8 +52,8 @@ internal object VersionStability {
 
   /**
    * Returns whether [version] is a pre-release, by a marker in the list above, by Maven's
-   * timestamped snapshot form, or by a trailing commit hash. A convention not in the list goes in a
-   * `rejectVersionIf` filter, which is applied in addition to this check.
+   * timestamped snapshot form, or by a trailing commit hash. A convention not in the list is added to
+   * the check with the task's `preReleaseVersionIf`.
    */
   @JvmStatic
   fun isPreRelease(version: String): Boolean {
@@ -65,15 +65,4 @@ internal object VersionStability {
       TIMESTAMPED_SNAPSHOT.containsMatchIn(qualified) ||
       COMMIT_HASH.containsMatchIn(qualified)
   }
-
-  /**
-   * Returns whether an upgrade from [currentVersion] to [candidateVersion] would trade a release
-   * for a pre-release. The candidate is only rejected when the current version is a release, so
-   * that the next release candidate is still reported to a build on one.
-   */
-  @JvmStatic
-  fun isLessStable(
-    candidateVersion: String,
-    currentVersion: String,
-  ): Boolean = isPreRelease(candidateVersion) && !isPreRelease(currentVersion)
 }
