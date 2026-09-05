@@ -201,6 +201,10 @@ internal abstract class DependencyUpdatesParametersService :
             chain.firstNotNullOfOrNull { it.rejectPreReleaseVersions }
               ?: (revision != INTEGRATION_REVISION),
         ),
+      outOfBoundVersionsRequested =
+        chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersionsFromCommandLine } == false,
+      preReleasesRequested =
+        chain.firstNotNullOfOrNull { it.rejectPreReleaseVersionsFromCommandLine } == false,
     )
   }
 }
@@ -228,6 +232,13 @@ internal class ResolvedParameters(
   val checkBuildEnvironmentConstraints: Boolean,
   val rejectOutOfBoundVersions: Boolean,
   val rejectPreReleaseVersions: Boolean,
+  /**
+   * Whether the command line asked for the out-of-bound versions, or the pre-releases, for this run.
+   * Read by the checks a rule calls, so that the option reaches a rule built on them, where the
+   * configured property does not: a rule written as an exception sets the property off itself.
+   */
+  val outOfBoundVersionsRequested: Boolean,
+  val preReleasesRequested: Boolean,
 )
 
 /** Registers the per-project producers and wires their results into the accumulator task. */
@@ -635,6 +646,8 @@ private fun statusesOf(
       rejectOutOfBoundVersions = parameters.rejectOutOfBoundVersions,
       rejectPreReleaseVersions = parameters.rejectPreReleaseVersions,
       preReleaseVersionIf = parameters.preReleaseVersionIf,
+      outOfBoundVersionsRequested = parameters.outOfBoundVersionsRequested,
+      preReleasesRequested = parameters.preReleasesRequested,
       onDeprecatedBoundRead = onDeprecatedBoundRead,
     )
   // Snapshotted for every configuration before the first resolution, as resolving one

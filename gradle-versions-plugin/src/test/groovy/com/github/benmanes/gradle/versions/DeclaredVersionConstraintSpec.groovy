@@ -269,6 +269,58 @@ final class DeclaredVersionConstraintSpec extends Specification {
     !result.output.contains('satisfiesDeclaredBound is deprecated')
   }
 
+  def 'the command line option shows what a rule reading isOutOfDeclaredBound hid'() {
+    given: 'the property is off, so the rule is the only thing that can reject'
+    writeBuildFile(
+      """
+        api('com.google.inject:guice') {
+          version {
+            require '2.0'
+            reject '3.1'
+          }
+        }
+      """,
+      """
+        rejectOutOfBoundVersions = false
+        rejectVersionIf {
+          isOutOfDeclaredBound()
+        }
+      """)
+
+    when:
+    run('--no-reject-out-of-bound-versions')
+
+    then: 'guice reaches the version it declares it rejects'
+    report().outdated.dependencies*.name == ['guice']
+    report().outdated.dependencies[0].available.milestone == '3.1'
+  }
+
+  def 'the positive command line option leaves a rule reading isOutOfDeclaredBound alone'() {
+    given: 'the property is off in the build, and the rule is what applies the bound'
+    writeBuildFile(
+      """
+        api('com.google.inject:guice') {
+          version {
+            require '2.0'
+            reject '3.1'
+          }
+        }
+      """,
+      """
+        rejectOutOfBoundVersions = false
+        rejectVersionIf {
+          isOutOfDeclaredBound()
+        }
+      """)
+
+    when:
+    run('--reject-out-of-bound-versions')
+
+    then:
+    report().outdated.dependencies*.name == ['guice']
+    report().outdated.dependencies[0].available.milestone == '3.0'
+  }
+
   def 'a Kotlin rule reading isOutOfDeclaredBound leaves out what the property would'() {
     given:
     testProjectDir.newFile('build.gradle.kts') <<

@@ -29,6 +29,8 @@ class ComponentSelectionWithCurrent internal constructor(
   private val onDeprecatedBoundRead: () -> Unit = {},
   /** The pre-release check [isPreRelease] answers, the built-in markers plus the convention added in the build. */
   private val preReleaseCheck: (String) -> Boolean = VersionStability::isPreRelease,
+  /** False for the run the command line asked for the out-of-bound versions on. */
+  private val declaredBoundChecked: Boolean = true,
 ) : ComponentSelection by delegate {
   /** Retained so the arity released before the constraint was added still links. */
   constructor(
@@ -101,19 +103,22 @@ class ComponentSelectionWithCurrent internal constructor(
    * `rejectPreReleaseVersions` property applies, the built-in markers plus any convention added with
    * `preReleaseVersionIf`, so a rule written with it leaves out what the property leaves out. Takes
    * the version to read, since a rule usually asks it of the candidate and of the version in use in
-   * turn.
+   * turn. Answers false for a run invoked with `--no-reject-pre-release-versions`, so that option
+   * shows the pre-releases a rule built on it would leave out as well.
    */
   fun isPreRelease(version: String): Boolean = preReleaseCheck(version)
 
   /**
    * Returns whether the candidate is an upgrade lying outside the declared bound, which is what the
-   * task's `rejectOutOfBoundVersions` property leaves out of the report.
+   * task's `rejectOutOfBoundVersions` property leaves out of the report. Answers false for a run
+   * invoked with `--no-reject-out-of-bound-versions`, so that option shows the versions a rule built
+   * on it would leave out as well.
    *
    * A function rather than a property, so that a Groovy closure and a Kotlin lambda call it alike.
    * A `val` reads without parentheses in Kotlin and as `outOfDeclaredBound` in Groovy, which would
    * leave the two documented spellings different.
    */
-  fun isOutOfDeclaredBound(): Boolean = isUpgradeOutOfDeclaredBound
+  fun isOutOfDeclaredBound(): Boolean = declaredBoundChecked && isUpgradeOutOfDeclaredBound
 
   override fun toString(): String {
     return """\

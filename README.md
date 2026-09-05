@@ -796,6 +796,9 @@ current-version exemption is the rule's own second call.
 `isOutOfDeclaredBound()` answers the bound check (see [Respecting declared
 bounds](#respecting-declared-bounds)) for the candidate. Turn the two
 properties off and let the rule apply them, with the exception written into it.
+Under `--no-reject-pre-release-versions` or `--no-reject-out-of-bound-versions`
+the matching member answers `false` for that run, so a single run still shows
+what the rule leaves out.
 Here one module is allowed both its pre-releases and the versions its
 declaration bounds out, while every other module is held to the same two
 checks:

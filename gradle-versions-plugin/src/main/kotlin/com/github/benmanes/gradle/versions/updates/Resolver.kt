@@ -55,6 +55,12 @@ class Resolver internal constructor(
   private val rejectPreReleaseVersions: Boolean,
   /** The convention added to the pre-release check in the build, null when none is configured. */
   preReleaseVersionIf: Spec<String>?,
+  /**
+   * Whether the command line asked for the out-of-bound versions, or the pre-releases, for this
+   * run, in which case the check a rule calls answers false, as [ResolvedParameters] explains.
+   */
+  private val outOfBoundVersionsRequested: Boolean,
+  preReleasesRequested: Boolean,
   /** Called when a rule reads the deprecated bound, so the warning is printed once per project. */
   private val onDeprecatedBoundRead: () -> Unit,
 ) {
@@ -73,18 +79,21 @@ class Resolver internal constructor(
     rejectOutOfBoundVersions = true,
     rejectPreReleaseVersions = true,
     preReleaseVersionIf = null,
+    outOfBoundVersionsRequested = false,
+    preReleasesRequested = false,
     onDeprecatedBoundRead = deprecatedBoundWarning(project),
   )
 
   /**
    * Whether a version is a pre-release, by the built-in markers or by the convention added in the
-   * build. Read by the built-in filter and by a rule calling `isPreRelease`, so the two agree.
+   * build. Read by the built-in filter and by a rule calling `isPreRelease`, so the two agree. Answers
+   * false for the run the command line asked for the pre-releases on.
    */
   private val isPreRelease: (String) -> Boolean =
-    if (preReleaseVersionIf == null) {
-      VersionStability::isPreRelease
-    } else {
-      { version -> VersionStability.isPreRelease(version) || preReleaseVersionIf.isSatisfiedBy(version) }
+    when {
+      preReleasesRequested -> { _ -> false }
+      preReleaseVersionIf == null -> VersionStability::isPreRelease
+      else -> { version -> VersionStability.isPreRelease(version) || preReleaseVersionIf.isSatisfiedBy(version) }
     }
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
@@ -466,7 +475,13 @@ class Resolver internal constructor(
   ) {
     configuration.resolutionStrategy { inner ->
       resolutionStrategy?.execute(
-        ResolutionStrategyWithCurrent(inner, currentCoordinates, onDeprecatedBoundRead, isPreRelease),
+        ResolutionStrategyWithCurrent(
+          inner,
+          currentCoordinates,
+          onDeprecatedBoundRead,
+          isPreRelease,
+          declaredBoundChecked = !outOfBoundVersionsRequested,
+        ),
       )
     }
   }

@@ -364,6 +364,40 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies[0].available.milestone == '1.0-beta'
   }
 
+  def 'the command line option shows what a rule reading isPreRelease hid'() {
+    given: 'the property is off and the rule has no pre-release exemption for the current version, so only the rule hides the beta'
+    writeBuildFile('com.example:prerelease-peer:1.0-alpha', '''
+          rejectPreReleaseVersions = false
+          rejectVersionIf {
+            isPreRelease(candidate.version) && candidate.version != currentVersion
+          }
+        ''')
+
+    when:
+    def report = runReport(['--no-reject-pre-release-versions'])
+
+    then:
+    report.outdated.dependencies*.name == ['prerelease-peer']
+    report.outdated.dependencies[0].available.milestone == '1.0-beta'
+  }
+
+  def 'the positive command line option leaves a rule reading isPreRelease alone'() {
+    given: 'the built-in check exempts a build already on a pre-release, so the rule is what hides the beta'
+    writeBuildFile('com.example:prerelease-peer:1.0-alpha', '''
+          rejectPreReleaseVersions = false
+          rejectVersionIf {
+            isPreRelease(candidate.version) && candidate.version != currentVersion
+          }
+        ''')
+
+    when:
+    def report = runReport(['--reject-pre-release-versions'])
+
+    then:
+    report.current.dependencies*.name == ['prerelease-peer']
+    report.outdated.dependencies.isEmpty()
+  }
+
   def 'the README exception snippet compiles and applies under the Kotlin DSL'() {
     given: 'one bounded module exempted, beside a module each check still holds'
     writeKotlinBuildFile(
@@ -400,6 +434,14 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     and: 'the pre-release check holds the widget and the bound check holds guava'
     report.current.dependencies*.name.sort() == ['guava', 'prerelease-widget']
+
+    when: 'both options ask for what the two checks leave out'
+    def unfiltered = runReport(['--no-reject-pre-release-versions', '--no-reject-out-of-bound-versions'])
+
+    then: 'the rule built on the two members hides nothing for that run'
+    unfiltered.outdated.dependencies*.name.sort() == ['guava', 'guice', 'prerelease-widget']
+    unfiltered.outdated.dependencies.find { it.name == 'guava' }.available.milestone == '16.0'
+    unfiltered.outdated.dependencies.find { it.name == 'prerelease-widget' }.available.milestone == '1.2-beta'
   }
 
   def 'a qualifier not in the built-in markers is passed through'() {
