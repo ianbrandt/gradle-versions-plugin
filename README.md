@@ -750,8 +750,13 @@ A convention the markers above do not cover, such as graphql-java's `-nf-`
 builds, is added to the check with `preReleaseVersionIf`. A version it matches
 is a pre-release wherever the check reads one: it is left out under the same
 property and option, a build already on one is still shown a newer one, and
-`isPreRelease` in a rule answers for it. Called more than once, the predicates
-accumulate:
+`isPreRelease` in a rule is true for it. The convention is part of the built-in
+check, so it is off wherever that check is, under `rejectPreReleaseVersions =
+false` and by default under the `integration` revision. It is given the version
+with any build metadata removed, as the markers are, and it is applied to the
+version in use as well as to the candidate. Called more than once on a task, the
+predicates accumulate; a subproject that calls it replaces the root's rather
+than adding to it (see [Shared task settings](#shared-task-settings)):
 
 <details open>
 <summary>Kotlin</summary>
@@ -790,16 +795,21 @@ options](#command-line-options)).
 
 Both built-in checks are readable from a rule, so a policy that is the built-in
 one with an exception does not have to restate the check itself.
-`isPreRelease()` answers the pre-release check above for the candidate: true
-when the candidate is a pre-release, any convention added with
-`preReleaseVersionIf` included, and the current version is not.
-`isPreRelease(version)` is the version-level test behind it, for a rule that
-asks it of some other version. `isOutOfDeclaredBound()` answers the bound check
-(see [Respecting declared bounds](#respecting-declared-bounds)) for the
-candidate. Turn the two properties off and let the rule apply them, with the
-exception written into it. Under `--no-reject-pre-release-versions` or
-`--no-reject-out-of-bound-versions` the matching member answers `false` for
-that run, so a single run still shows what the rule leaves out.
+`isPreRelease()` is the pre-release check above for the candidate: true when
+the candidate is a pre-release, any convention added with `preReleaseVersionIf`
+included, and the current version is not. `isPreRelease(version)` is the
+version-level test behind it, for a rule that reads some other version.
+`isOutOfDeclaredBound()` is the bound check (see [Respecting declared
+bounds](#respecting-declared-bounds)) for the candidate. Turn the two
+properties off and let the rule apply them, with the exception written into
+it. Under `--no-reject-pre-release-versions` or
+`--no-reject-out-of-bound-versions` the matching member is `false` for every
+candidate on that run, so a single run still shows what a rule rejecting on it
+leaves out. A rule that negates a member rejects everything on such a run. With
+the positive `--reject-pre-release-versions` or `--reject-out-of-bound-versions`
+the built-in check is on ahead of the property, and it is applied before any
+rule, so for that run the exception is not applied either.
+
 Here one module is allowed both its pre-releases and the versions its
 declaration bounds out, while every other module is held to the same two
 checks:
@@ -2377,12 +2387,13 @@ the newest of them before:
 >   pre-release markers rather than a stable pattern, so a qualifier not in its
 >   list, such as `13.4.0.jre11`, stays in the report. A convention not in the
 >   marker list, such as graphql-java's `-nf-` builds, is added to the check
->   with `preReleaseVersionIf`, so the property and its option govern it too.
+>   with `preReleaseVersionIf`, so the property and its option govern it too,
+>   and it is off wherever the property is.
 > - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
->   bound is now applied by `rejectOutOfBoundVersions`. A build that bounded
->   only some of its modules turns the property off and calls
->   `isOutOfDeclaredBound()` from the rule instead (see [Filtering unstable
->   versions](#filtering-unstable-versions)). The member is
+>   bound is now applied by `rejectOutOfBoundVersions`. A build that needs an
+>   exception for a module it bounds turns the property off and calls
+>   `isOutOfDeclaredBound()` from the rule, with the exception written in (see
+>   [Filtering unstable versions](#filtering-unstable-versions)). The member is
 >   deprecated and will be removed in a later release; a warning is printed
 >   once per project when a rule reads it, and a Kotlin DSL build that treats
 >   compiler warnings as errors has to drop the clause before upgrading. With
