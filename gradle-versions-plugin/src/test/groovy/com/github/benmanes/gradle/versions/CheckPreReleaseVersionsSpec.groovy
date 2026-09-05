@@ -268,7 +268,17 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies.isEmpty()
   }
 
-  private void writeMultiProjectBuild(String dependency, String taskConfig) {
+  private void writeMultiProjectBuild(String dependency, String taskConfig, boolean applyInSubprojects = false) {
+    // A subproject applying the plugin registers settings of its own, all unset, which is what makes
+    // inheriting from the root distinguishable from having no entry at all.
+    def subprojectPlugin = applyInSubprojects
+      ? '''
+          apply plugin: 'io.github.ben-manes.versions'
+          tasks.named('dependencyUpdates').configure {
+            checkForGradleUpdate = false
+          }
+        '''
+      : ''
     testProjectDir.newFile('settings.gradle') << "include 'app'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -282,7 +292,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
         subprojects {
           apply plugin: 'java'
-          apply plugin: 'io.github.ben-manes.versions'
+          $subprojectPlugin
 
           repositories {
             maven {
@@ -335,7 +345,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     when:
     def report = runReport()
 
-    then: 'the widget loses its pre-release, and the peer, already on one, keeps its upgrade'
+    then: 'the widget loses its pre-release, and the peer, already on one, is still shown its upgrade'
     report.current.dependencies*.name == ['prerelease-widget']
     report.outdated.dependencies*.name == ['prerelease-peer']
     report.outdated.dependencies[0].available.milestone == '1.0-beta'
@@ -364,7 +374,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies[0].available.milestone == '1.0-beta'
   }
 
-  def 'the command line option shows what a rule reading isPreRelease hid'() {
+  def 'the command line option shows what a rule reading isPreRelease left out'() {
     given: 'the property is off and the rule has no pre-release exemption for the current version, so only the rule hides the beta'
     writeBuildFile('com.example:prerelease-peer:1.0-alpha', '''
           rejectPreReleaseVersions = false
@@ -415,46 +425,23 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     when:
     def report = runReport()
 
-    then: 'the widget loses its pre-release, and the peer, already on one, keeps its upgrade'
+    then: 'the widget loses its pre-release, and the peer, already on one, is still shown its upgrade'
     report.current.dependencies*.name == ['prerelease-widget']
     report.outdated.dependencies*.name == ['prerelease-peer']
     report.outdated.dependencies[0].available.milestone == '1.0-beta'
   }
 
-  def 'a Kotlin rule reading isPreRelease with no argument leaves out what the property would, and no more'() {
-    given:
+  def 'a Kotlin rule exempting one module from both checks applies, and both options lift the rest'() {
+    given: 'the exempted module has a newer version that is both a pre-release and out of bound'
     writeKotlinBuildFile(
       '''
-          implementation("com.example:prerelease-widget:1.0")
-          implementation("com.example:prerelease-peer:1.0-alpha")
-        ''',
-      '''
-          rejectPreReleaseVersions = false
-          rejectVersionIf {
-            isPreRelease()
-          }
-        ''')
-
-    when:
-    def report = runReport()
-
-    then:
-    report.current.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies*.name == ['prerelease-peer']
-    report.outdated.dependencies[0].available.milestone == '1.0-beta'
-  }
-
-  def 'the README exception snippet compiles and applies under the Kotlin DSL'() {
-    given: 'one bounded module exempted, beside a module each check still holds'
-    writeKotlinBuildFile(
-      '''
-          implementation("com.google.inject:guice") {
+          implementation("com.example:prerelease-widget") {
             version {
-              require("2.0")
-              reject("3.1")
+              require("1.0")
+              reject("1.2-beta")
             }
           }
-          implementation("com.example:prerelease-widget:1.0")
+          implementation("com.example:prerelease-flagged:1.0")
           implementation("com.google.guava:guava") {
             version {
               require("15.0")
@@ -465,28 +452,80 @@ final class CheckPreReleaseVersionsSpec extends Specification {
       '''
           rejectPreReleaseVersions = false
           rejectOutOfBoundVersions = false
+          preReleaseVersionIf { it.endsWith("-flagged") }
           rejectVersionIf {
-            candidate.module != "guice" && (isPreRelease() || isOutOfDeclaredBound())
+            candidate.module != "prerelease-widget" && (isPreRelease() || isOutOfDeclaredBound())
           }
         ''')
 
     when:
     def report = runReport()
 
-    then: 'the exemption reaches the version guice declares it rejects'
-    report.outdated.dependencies*.name == ['guice']
-    report.outdated.dependencies[0].available.milestone == '3.1'
+    then: 'the exemption reaches the version the widget both bounds out and marks pre-release'
+    report.outdated.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies[0].available.milestone == '1.2-beta'
 
-    and: 'the pre-release check holds the widget and the bound check holds guava'
-    report.current.dependencies*.name.sort() == ['guava', 'prerelease-widget']
+    and: 'the added convention holds the flagged module and the bound check holds guava'
+    report.current.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
 
     when: 'both options ask for what the two checks leave out'
     def unfiltered = runReport(['--no-reject-pre-release-versions', '--no-reject-out-of-bound-versions'])
 
-    then: 'the rule built on the two members hides nothing for that run'
-    unfiltered.outdated.dependencies*.name.sort() == ['guava', 'guice', 'prerelease-widget']
+    then: 'the rule built on the two members leaves nothing out for that run'
+    unfiltered.outdated.dependencies*.name.sort() == ['guava', 'prerelease-flagged', 'prerelease-widget']
     unfiltered.outdated.dependencies.find { it.name == 'guava' }.available.milestone == '16.0'
-    unfiltered.outdated.dependencies.find { it.name == 'prerelease-widget' }.available.milestone == '1.2-beta'
+    unfiltered.outdated.dependencies.find { it.name == 'prerelease-flagged' }.available.milestone == '3.0-flagged'
+  }
+
+  def 'a Groovy rule exempting one module from both checks applies'() {
+    given:
+    writeDeclarations(
+      '''
+          implementation('com.example:prerelease-widget') {
+            version {
+              require '1.0'
+              reject '1.2-beta'
+            }
+          }
+          implementation 'com.example:prerelease-flagged:1.0'
+          implementation('com.google.guava:guava') {
+            version {
+              require '15.0'
+              reject '[16.0,)'
+            }
+          }
+        ''',
+      '''
+          rejectPreReleaseVersions = false
+          rejectOutOfBoundVersions = false
+          preReleaseVersionIf { it.endsWith('-flagged') }
+          rejectVersionIf {
+            candidate.module != 'prerelease-widget' && (isPreRelease() || isOutOfDeclaredBound())
+          }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies[0].available.milestone == '1.2-beta'
+    report.current.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
+  }
+
+  def 'under the integration revision the added convention is off with the built-in check'() {
+    given:
+    writeBuildFile('com.example:prerelease-flagged:1.0', '''
+          revision = 'integration'
+          preReleaseVersionIf { it.endsWith('-flagged') }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies[0].available.integration == '3.0-flagged'
   }
 
   def 'a qualifier not in the built-in markers is passed through'() {
@@ -499,18 +538,6 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     then:
     report.outdated.dependencies*.name == ['prerelease-flagged']
     report.outdated.dependencies[0].available.milestone == '3.0-flagged'
-  }
-
-  def 'preReleaseVersionIf adds a convention to the built-in check'() {
-    given:
-    writeBuildFile('com.example:prerelease-flagged:1.0', "preReleaseVersionIf { it.endsWith('-flagged') }")
-
-    when:
-    def report = runReport()
-
-    then:
-    report.current.dependencies*.name == ['prerelease-flagged']
-    report.outdated.dependencies.isEmpty()
   }
 
   def 'a build already on a version the added convention matches is still shown a newer one'() {
@@ -556,8 +583,8 @@ final class CheckPreReleaseVersionsSpec extends Specification {
   }
 
   def 'a subproject inherits preReleaseVersionIf from the root task'() {
-    given:
-    writeMultiProjectBuild('com.example:prerelease-flagged:1.0', "preReleaseVersionIf { it.endsWith('-flagged') }")
+    given: 'the subproject applies the plugin, so it has settings of its own to inherit through'
+    writeMultiProjectBuild('com.example:prerelease-flagged:1.0', "preReleaseVersionIf { it.endsWith('-flagged') }", true)
 
     when:
     def report = runReport()
@@ -582,7 +609,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
   }
 
   def 'conventions added in two calls both apply'() {
-    given: 'the second call names the guava release the built-in markers pass through'
+    given: 'the second call matches the guava release the built-in markers pass through'
     writeDeclarations(
       '''
           implementation 'com.example:prerelease-flagged:1.0'

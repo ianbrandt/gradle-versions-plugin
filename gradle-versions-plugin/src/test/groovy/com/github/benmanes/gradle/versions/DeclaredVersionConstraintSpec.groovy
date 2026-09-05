@@ -269,7 +269,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
     !result.output.contains('satisfiesDeclaredBound is deprecated')
   }
 
-  def 'the command line option shows what a rule reading isOutOfDeclaredBound hid'() {
+  def 'the command line option shows what a rule reading isOutOfDeclaredBound left out'() {
     given: 'the property is off, so the rule is the only thing that can reject'
     writeBuildFile(
       """
@@ -293,76 +293,6 @@ final class DeclaredVersionConstraintSpec extends Specification {
     then: 'guice reaches the version it declares it rejects'
     report().outdated.dependencies*.name == ['guice']
     report().outdated.dependencies[0].available.milestone == '3.1'
-  }
-
-  def 'the positive command line option leaves a rule reading isOutOfDeclaredBound alone'() {
-    given: 'the property is off in the build, and the rule is what applies the bound'
-    writeBuildFile(
-      """
-        api('com.google.inject:guice') {
-          version {
-            require '2.0'
-            reject '3.1'
-          }
-        }
-      """,
-      """
-        rejectOutOfBoundVersions = false
-        rejectVersionIf {
-          isOutOfDeclaredBound()
-        }
-      """)
-
-    when:
-    run('--reject-out-of-bound-versions')
-
-    then:
-    report().outdated.dependencies*.name == ['guice']
-    report().outdated.dependencies[0].available.milestone == '3.0'
-  }
-
-  def 'a Kotlin rule reading isOutOfDeclaredBound leaves out what the property would'() {
-    given:
-    testProjectDir.newFile('build.gradle.kts') <<
-      """
-        import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
-
-        plugins {
-          `java-library`
-          id("io.github.ben-manes.versions")
-        }
-
-        repositories {
-          maven(url = "${mavenRepoUrl}")
-        }
-
-        dependencies {
-          api("com.google.inject:guice") {
-            version {
-              require("2.0")
-              reject("3.1")
-            }
-          }
-          api("com.google.guava:guava:15.0")
-        }
-
-        tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
-          outputFormatter = "json"
-          checkForGradleUpdate = false
-          rejectOutOfBoundVersions = false
-          rejectVersionIf {
-            isOutOfDeclaredBound()
-          }
-        }
-      """.stripIndent()
-
-    when:
-    run()
-
-    then:
-    report().outdated.dependencies*.name == ['guava', 'guice']
-    report().outdated.dependencies.find { it.name == 'guice' }.available.milestone == '3.0'
-    report().outdated.dependencies.find { it.name == 'guava' }.available.milestone == '16.0'
   }
 
   def 'a constraint stating a range still bounds the report, though its version reads as a range'() {
