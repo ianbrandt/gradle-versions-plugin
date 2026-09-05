@@ -338,6 +338,7 @@ command line option, since no command line can express the logic.
 | [`filterDeclaredConfigurations`](#filterdeclaredconfigurations) | a `Spec<String>` | every name | |
 | [`rejectOutOfBoundVersions`](#respecting-declared-bounds) | `true`, `false` | `true` | `--[no-]reject-out-of-bound-versions` |
 | [`rejectPreReleaseVersions`](#filtering-unstable-versions) | `true`, `false` | `true` | `--[no-]reject-pre-release-versions` |
+| [`preReleaseVersionIf`](#filtering-unstable-versions) | a predicate over a version string | nothing added | |
 | [`rejectVersionIf`](#filtering-unstable-versions) | a predicate over the candidate | nothing rejected | |
 | [`outputFormatter`](#report-format) | `text`, `json`, `xml`, `html`, a comma separated list of those, or a `Reporter` | `text` | `--output-formatter` |
 | [`outputDir`](#outputdir) | a directory path | `<buildDirectory>/dependencyUpdates` | `--output-dir` |
@@ -745,11 +746,12 @@ candidate is left to resolve. That entry is reported as unresolved, with the
 rejected versions listed, rather than as up to date. A `rejectVersionIf` filter
 that rejects everything has the same effect.
 
-A convention the markers above do not cover goes in a `rejectVersionIf`
-filter, which is applied in addition to the built-in check rather than in place
-of it. A candidate is left out if either rejects it, so the filter only has to
-cover the conventions that are not in the marker list, such as graphql-java's
-`-nf-` builds:
+A convention the markers above do not cover, such as graphql-java's `-nf-`
+builds, is added to the check with `preReleaseVersionIf`. A version it matches
+is a pre-release wherever the check reads one: it is left out under the same
+property and option, a build already on one is still shown a newer one, and
+`isPreRelease` in a rule answers for it. Called more than once, the predicates
+accumulate:
 
 <details open>
 <summary>Kotlin</summary>
@@ -758,9 +760,7 @@ cover the conventions that are not in the marker list, such as graphql-java's
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 
 tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
-  rejectVersionIf {
-    candidate.version.contains("-nf-") && !currentVersion.contains("-nf-")
-  }
+  preReleaseVersionIf { it.contains("-nf-") }
 }
 ```
 
@@ -771,23 +771,28 @@ tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
 
 ```groovy
 tasks.named("dependencyUpdates").configure {
-  rejectVersionIf {
-    candidate.version.contains('-nf-') && !currentVersion.contains('-nf-')
-  }
+  preReleaseVersionIf { it.contains('-nf-') }
 }
 ```
 
 </details>
 
-Neither check can restore what the other rejected. To see every published
-candidate, including the pre-releases, turn the built-in filter off with
-`rejectPreReleaseVersions = false`, or with `--no-reject-pre-release-versions`
-for a single run (see [Command line options](#command-line-options)).
+A `rejectVersionIf` filter is applied in addition to the built-in check rather
+than in place of it, and it is still applied when the option is passed, so a
+convention belongs in `preReleaseVersionIf` rather than in a filter. A filter is
+for what the check cannot express: a policy that is not about pre-releases, such
+as pinning a module, or an exception to the check itself, as below. A candidate
+is left out if either rejects it. Neither check can restore what the other
+rejected. To see every published candidate, including the pre-releases, turn
+the built-in filter off with `rejectPreReleaseVersions = false`, or with
+`--no-reject-pre-release-versions` for a single run (see [Command line
+options](#command-line-options)).
 
 Both built-in checks are readable from a rule, so a policy that is the built-in
 one with an exception does not have to restate the check itself.
-`isPreRelease(version)` answers the marker check above for the version passed
-to it, and the current-version exemption is the rule's own second call.
+`isPreRelease(version)` answers the pre-release check above for the version
+passed to it, any convention added with `preReleaseVersionIf` included, and the
+current-version exemption is the rule's own second call.
 `isOutOfDeclaredBound()` answers the bound check (see [Respecting declared
 bounds](#respecting-declared-bounds)) for the candidate. Turn the two
 properties off and let the rule apply them, with the exception written into it.
@@ -1976,7 +1981,8 @@ task by that name now fails with a duplicate-task error—rename yours.
 The settings that control resolution (`revision`, `rejectVersionIf` or a full
 `resolutionStrategy`, `filterConfigurations`, `filterDeclaredConfigurations`,
 `checkConstraints`, `checkBuildEnvironmentConstraints`,
-`rejectOutOfBoundVersions`, and `rejectPreReleaseVersions`) are inherited from
+`rejectOutOfBoundVersions`, `rejectPreReleaseVersions`, and
+`preReleaseVersionIf`) are inherited from
 the nearest project up the hierarchy whose task set them. Configuring the root
 project's task therefore covers every project, unless a subproject configures
 its own (see [Task properties](#task-properties)).
@@ -2368,9 +2374,8 @@ the newest of them before:
 >   the `rejectVersionIf` clause that called it. The built-in check matches
 >   pre-release markers rather than a stable pattern, so a qualifier not in its
 >   list, such as `13.4.0.jre11`, stays in the report. A convention not in the
->   marker list, such as graphql-java's `-nf-` builds, still goes in a
->   `rejectVersionIf` filter, which is applied in addition to the built-in
->   check.
+>   marker list, such as graphql-java's `-nf-` builds, is added to the check
+>   with `preReleaseVersionIf`, so the property and its option govern it too.
 > - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
 >   bound is now applied by `rejectOutOfBoundVersions`. A build that bounded
 >   only some of its modules turns the property off and calls
