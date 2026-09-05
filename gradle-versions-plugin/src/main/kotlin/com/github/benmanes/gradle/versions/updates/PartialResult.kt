@@ -128,8 +128,8 @@ data class PartialStatus
       )
 
     /**
-     * Keeps the `copy` v0.61.0 shipped callable, which the generated one no longer is now that the
-     * declared and platform constraints moved it past eleven parameters.
+     * Keeps the `copy` a release shipped callable. The generated one no longer is, now that the
+     * declared and platform constraints moved it past thirteen parameters.
      */
     fun copy(
       group: String = this.group,
@@ -143,10 +143,13 @@ data class PartialStatus
       configurations: List<String> = this.configurations,
       projectPath: String? = this.projectPath,
       platformProjects: List<String> = this.platformProjects,
+      constrainedBy: List<String> = this.constrainedBy,
+      splitByLatest: Boolean = this.splitByLatest,
     ): PartialStatus =
       copy(
         group, name, declaredVersion, userReason, latestVersion, projectUrl, unresolved, contributed,
-        configurations, projectPath, platformProjects, constraint, platformConstraints,
+        configurations, projectPath, platformProjects, constrainedBy, splitByLatest, constraint,
+        platformConstraints,
       )
   }
 
