@@ -364,22 +364,19 @@ final class DivergentVersionsSpec extends Specification {
     xmlReport.outdated.dependencies.outdatedDependency[0].projects.project*.text() == [':']
   }
 
-  def 'Includes both projects on one row when their latest versions match'() {
-    given:
+  def 'Collapses the split when the rule of the project asked for the report is the stricter'() {
+    given: 'a root rejecting a version that neither subproject rejects'
     writeSplitBuild(
       [':': "it.candidate.version == '3.1'", 'app': 'false', 'lib': 'false'])
 
     when:
     def result = run([':dependencyUpdates', '--no-parallel'])
-    def nl = System.lineSeparator()
 
-    then:
+    then: 'the root caps the rows of both subprojects, leaving nothing to attribute'
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains(
-      " - com.google.inject:guice [2.0 -> 3.0]${nl}$GUICE_URL${nl}     declared in root project")
-    result.output.contains(
-      " - com.google.inject:guice [2.0 -> 3.1]${nl}$GUICE_URL${nl}     declared in :app, :lib")
-    result.output.count('com.google.inject:guice') == 2
+    result.output.contains(' - com.google.inject:guice [2.0 -> 3.0]')
+    result.output.count('com.google.inject:guice') == 1
+    !result.output.contains('declared in')
   }
 
   def 'Keeps every row of a three way split in one section'() {

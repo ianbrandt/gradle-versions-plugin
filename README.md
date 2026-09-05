@@ -2175,17 +2175,22 @@ dependencies {
 </details>
 
 The task that writes the report applies its own settings to every entry it
-holds, including the entries an included build resolved. Its `rejectVersionIf`
-or `resolutionStrategy` rules judge those entries, and
-`filterDeclaredConfigurations` leaves them out by the names they show. An
-included build that configures nothing takes the aggregating build's rules for
-the entries it contributes.
+holds, including the entries an included build resolved and the entries its own
+subprojects resolved. Its `rejectVersionIf` or `resolutionStrategy` rules judge
+those entries, and `filterDeclaredConfigurations` leaves them out by the names
+they show. An included build that configures nothing takes the aggregating
+build's rules for the entries it contributes.
 
 The report only narrows what a build offered. The version an entry shows is the
 newest one the producing build's own resolution accepted, so an aggregating
 build can move an entry to an older version, but not to a newer one. An
 included build with stricter rules caps what the merged report shows for the
 coordinates it declares.
+
+A subproject is not exempt from this. Where the project the report is asked for
+rejects a version that a subproject accepts, the older version is shown for
+every project, so two entries that the subprojects' own rules would have split
+apart are shown as one.
 
 An entry the report moved to an older version was never resolved at that
 version. The candidates behind it come from a repository listing, so the
@@ -2529,9 +2534,12 @@ to the entries it merges from an included build:
 >   composite that declared every project of an included build can declare the
 >   build alone (see [Composite builds](#composite-builds)).
 > - The aggregating report's `rejectVersionIf`, `resolutionStrategy` and
->   `filterDeclaredConfigurations` reach the entries an included build resolved.
->   A merged entry can show an older version, or not appear at all, where the
->   included build's own settings decided it before.
+>   `filterDeclaredConfigurations` reach every entry it holds, both the ones an
+>   included build resolved and the ones its own subprojects resolved. An entry
+>   can show an older version, or not appear at all, where the included build's
+>   or the subproject's own settings settled it before. Where the project the
+>   report is asked for rejects a version a subproject accepts, two entries that
+>   a per-project rule would have split apart are shown as one.
 > - A report that merges an included build's entries gives up its configuration
 >   cache entry when a Kotlin rule calls a function its own build script
 >   declares, as the `isNonStable` recipe does. Move the helper into a compiled
