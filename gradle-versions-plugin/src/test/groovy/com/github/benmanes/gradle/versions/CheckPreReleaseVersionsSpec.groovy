@@ -363,6 +363,44 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies[0].available.milestone == '1.0-beta'
   }
 
+  def 'the README exception snippet compiles and applies under the Kotlin DSL'() {
+    given: 'one bounded module exempted, beside a module each check still holds'
+    writeKotlinBuildFile(
+      '''
+          implementation("com.google.inject:guice") {
+            version {
+              require("2.0")
+              reject("3.1")
+            }
+          }
+          implementation("com.example:prerelease-widget:1.0")
+          implementation("com.google.guava:guava") {
+            version {
+              require("15.0")
+              reject("[16.0,)")
+            }
+          }
+        ''',
+      '''
+          rejectPreReleaseVersions = false
+          rejectOutOfBoundVersions = false
+          rejectVersionIf {
+            candidate.module != "guice" &&
+              ((isPreRelease(candidate.version) && !isPreRelease(currentVersion)) || isOutOfDeclaredBound())
+          }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then: 'the exemption reaches the version guice declares it rejects'
+    report.outdated.dependencies*.name == ['guice']
+    report.outdated.dependencies[0].available.milestone == '3.1'
+
+    and: 'the pre-release check holds the widget and the bound check holds guava'
+    report.current.dependencies*.name.sort() == ['guava', 'prerelease-widget']
+  }
+
   def 'a qualifier not in the built-in markers is passed through'() {
     given:
     writeBuildFile('com.example:prerelease-flagged:1.0')

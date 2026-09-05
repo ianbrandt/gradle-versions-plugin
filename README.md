@@ -782,10 +782,56 @@ tasks.named("dependencyUpdates").configure {
 Neither check can restore what the other rejected. To see every published
 candidate, including the pre-releases, turn the built-in filter off with
 `rejectPreReleaseVersions = false`, or with `--no-reject-pre-release-versions`
-for a single run (see [Command line options](#command-line-options)). Turn it
-off too for a policy of your own, written as a whole in a component selection
-rule. There is no agreed standard for what counts as unstable, but this is a
-common starting point:
+for a single run (see [Command line options](#command-line-options)).
+
+Both built-in checks are readable from a rule, so a policy that is the built-in
+one with an exception does not have to restate the check itself.
+`isPreRelease(version)` answers the marker check above for the version passed
+to it, and the current-version exemption is the rule's own second call.
+`isOutOfDeclaredBound()` answers the bound check (see [Respecting declared
+bounds](#respecting-declared-bounds)) for the candidate. Turn the two
+properties off and let the rule apply them, with the exception written into it.
+Here one module is allowed both its pre-releases and the versions its
+declaration bounds out, while every other module is held to the same two
+checks:
+
+<details open>
+<summary>Kotlin</summary>
+
+```kotlin
+import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
+
+tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
+  rejectPreReleaseVersions = false
+  rejectOutOfBoundVersions = false
+  rejectVersionIf {
+    candidate.module != "guava" &&
+      ((isPreRelease(candidate.version) && !isPreRelease(currentVersion)) || isOutOfDeclaredBound())
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Groovy</summary>
+
+```groovy
+tasks.named("dependencyUpdates").configure {
+  rejectPreReleaseVersions = false
+  rejectOutOfBoundVersions = false
+  rejectVersionIf {
+    candidate.module != 'guava' &&
+      ((isPreRelease(candidate.version) && !isPreRelease(currentVersion)) || isOutOfDeclaredBound())
+  }
+}
+```
+
+</details>
+
+Turn the built-in filter off for a policy of your own, written as a whole in
+a component selection rule. There is no agreed standard for what counts as
+unstable, but this is a common starting point:
 
 <details open>
 <summary>Kotlin</summary>
@@ -1026,8 +1072,12 @@ can bound the same module. The query that finds candidates is deliberately
 unbounded, so a rule that applies a declared bound reads it from
 `versionConstraint` rather than restating it. It is null for a module no
 declaration was matched to, such as one a substitution rule resolved to, so
-guard for that. `satisfiesDeclaredBound`, the verdict a rule applied before the
-property did, is deprecated and will be removed in a later release.
+guard for that. The verdict the property applies is readable as
+`isOutOfDeclaredBound()`, so a rule holding only part of the build to its
+bounds writes the exception alone (see [Filtering unstable
+versions](#filtering-unstable-versions)). `satisfiesDeclaredBound`, the verdict
+a rule applied before the property did, is deprecated and will be removed in a
+later release.
 
 The buildscript classpath is the exception. There a dynamic required version
 bounds the candidate, so a plugin declared as `version "[1.0, 2["` or
@@ -2322,7 +2372,10 @@ the newest of them before:
 >   `rejectVersionIf` filter, which is applied in addition to the built-in
 >   check.
 > - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
->   bound is now applied by `rejectOutOfBoundVersions`. The member is
+>   bound is now applied by `rejectOutOfBoundVersions`. A build that bounded
+>   only some of its modules turns the property off and calls
+>   `isOutOfDeclaredBound()` from the rule instead (see [Filtering unstable
+>   versions](#filtering-unstable-versions)). The member is
 >   deprecated and will be removed in a later release; a warning is printed
 >   once per project when a rule reads it, and a Kotlin DSL build that treats
 >   compiler warnings as errors has to drop the clause before upgrading. With
