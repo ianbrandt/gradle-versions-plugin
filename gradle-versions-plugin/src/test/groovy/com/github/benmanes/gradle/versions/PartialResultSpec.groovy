@@ -261,7 +261,7 @@ final class PartialResultSpec extends Specification {
     def declared = new ConstraintInfo('[1.0,2.0)', '1.5', '1.8', ['1.9'])
     def platform = new ConstraintInfo('1.0', '', '', [])
     def status = new PartialStatus('com.google.guava', 'guava', '1.0', null, '1.0', null, null, false,
-      [], null, [], declared, [platform])
+      [], null, [], [], false, declared, [platform])
     def result = new PartialResult(PartialResult.FORMAT_VERSION, ':', [status], [])
 
     when:
