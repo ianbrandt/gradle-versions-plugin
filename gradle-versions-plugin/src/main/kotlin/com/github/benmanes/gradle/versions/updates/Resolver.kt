@@ -56,11 +56,11 @@ class Resolver internal constructor(
   /** The convention added to the pre-release check in the build, null when none is configured. */
   preReleaseVersionIf: Spec<String>?,
   /**
-   * Whether the command line asked for the out-of-bound versions, or the pre-releases, for this
-   * run, in which case the check a rule calls answers false, as [ResolvedParameters] explains.
+   * Whether `--no-reject-out-of-bound-versions`, or `--no-reject-pre-release-versions`, was passed
+   * for this run, in which case the check a rule calls is false, as [ResolvedParameters] explains.
    */
   private val outOfBoundVersionsRequested: Boolean,
-  preReleasesRequested: Boolean,
+  private val preReleasesRequested: Boolean,
   /** Called when a rule reads the deprecated bound, so the warning is printed once per project. */
   private val onDeprecatedBoundRead: () -> Unit,
 ) {
@@ -86,15 +86,10 @@ class Resolver internal constructor(
 
   /**
    * Whether a version is a pre-release, by the built-in markers or by the convention added in the
-   * build. Read by the built-in filter and by a rule calling `isPreRelease`, so the two agree. Answers
-   * false for the run the command line asked for the pre-releases on.
+   * build. Handed to every selection wrapper, so the built-in filter and a rule calling
+   * `isPreRelease` read one definition.
    */
-  private val isPreRelease: (String) -> Boolean =
-    when {
-      preReleasesRequested -> { _ -> false }
-      preReleaseVersionIf == null -> VersionStability::isPreRelease
-      else -> { version -> VersionStability.isPreRelease(version) || preReleaseVersionIf.isSatisfiedBy(version) }
-    }
+  private val isPreRelease: (String) -> Boolean = VersionStability.withConvention(preReleaseVersionIf)
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
 
@@ -427,10 +422,10 @@ class Resolver internal constructor(
       return
     }
     configuration.resolutionStrategy { inner ->
-      ResolutionStrategyWithCurrent(inner, currentCoordinates).componentSelection { rules ->
+      ResolutionStrategyWithCurrent(inner, currentCoordinates, {}, isPreRelease).componentSelection { rules ->
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
-            if (current.isUpgradeOutOfDeclaredBound) {
+            if (current.isOutOfDeclaredBound()) {
               current.reject("Rejected by rejectOutOfBoundVersions")
             }
           },
@@ -441,8 +436,8 @@ class Resolver internal constructor(
 
   /**
    * Adds the filter that leaves out a pre-release candidate while the current version is a release,
-   * which [isPreRelease] answers for the candidate and for the current version. Registered ahead of
-   * the revision filter for the reason given on [addDeclaredBoundFilter], and on the configuration
+   * as [ComponentSelectionWithCurrent.isPreRelease] reads both. Registered ahead of the revision
+   * filter for the reason given on [addDeclaredBoundFilter], and on the configuration
    * rather than through [DependencyUpdatesTask.rejectVersionIf]: that setter marks the task's
    * parameters as having a resolution strategy, and a project marked that way is resolved with its
    * own strategy instead of its nearest ancestor's, so routing this filter through it would stop
@@ -456,10 +451,10 @@ class Resolver internal constructor(
       return
     }
     configuration.resolutionStrategy { inner ->
-      ResolutionStrategyWithCurrent(inner, currentCoordinates).componentSelection { rules ->
+      ResolutionStrategyWithCurrent(inner, currentCoordinates, {}, isPreRelease).componentSelection { rules ->
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
-            if (isPreRelease(current.candidate.version) && !isPreRelease(current.currentVersion)) {
+            if (current.isPreRelease()) {
               current.reject("Pre-release rejected by rejectPreReleaseVersions")
             }
           },
@@ -480,6 +475,7 @@ class Resolver internal constructor(
           currentCoordinates,
           onDeprecatedBoundRead,
           isPreRelease,
+          preReleaseChecked = !preReleasesRequested,
           declaredBoundChecked = !outOfBoundVersionsRequested,
         ),
       )

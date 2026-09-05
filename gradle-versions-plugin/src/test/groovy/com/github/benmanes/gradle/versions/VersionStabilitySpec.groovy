@@ -1,6 +1,10 @@
 package com.github.benmanes.gradle.versions
 
 import com.github.benmanes.gradle.versions.updates.VersionStability
+import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentSelectionWithCurrent
+import org.gradle.api.artifacts.ComponentSelection
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.specs.Spec
 import spock.lang.Issue
 import spock.lang.Specification
 import spock.lang.Unroll
@@ -159,4 +163,41 @@ final class VersionStabilitySpec extends Specification {
     !VersionStability.isPreRelease('230521-nf-execution')
   }
 
+  def 'a convention is given the version without its build metadata, as the markers are'() {
+    given:
+    def check = VersionStability.withConvention({ String version -> version.endsWith('-flagged') } as Spec<String>)
+
+    expect:
+    check.invoke('2.0-flagged+build.7')
+    check.invoke('2.0-flagged')
+    !check.invoke('2.0+flagged')
+    !VersionStability.withConvention(null).invoke('2.0-flagged')
+  }
+
+  @Unroll
+  def 'isPreRelease() with #current in use and #candidate offered: #rejected'() {
+    given:
+    def selection = new ComponentSelectionWithCurrent(selectionOf(candidate), current)
+
+    expect:
+    selection.isPreRelease() == rejected
+
+    where:
+    current          | candidate          || rejected
+    '1.0.0'          | '2.0.0-rc1'        || true
+    '1.0.0'          | '2.0.0'            || false
+    // Already on a pre-release, so the next one is reported.
+    '2.0.0-rc1'      | '2.0.0-rc2'        || false
+    '2.0.0-rc1'      | '2.0.0'            || false
+    '9.7.0-rc-1'     | '9.7.0-rc-2'       || false
+    '1.0-SNAPSHOT'   | '2.0-SNAPSHOT'     || false
+    // A release variant is a release on both sides, so nothing is withheld either way.
+    '10.2.0.jre8'    | '10.2.0.jre11'     || false
+    '1.1.17.SP1'     | '1.1.17.SP2'       || false
+  }
+
+  private ComponentSelection selectionOf(String version) {
+    def id = Stub(ModuleComponentIdentifier) { getVersion() >> version }
+    return Stub(ComponentSelection) { getCandidate() >> id }
+  }
 }

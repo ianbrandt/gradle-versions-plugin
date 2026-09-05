@@ -464,8 +464,14 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
    * Adds a convention the built-in markers do not cover, such as graphql-java's `-nf-` builds, to
    * the pre-release check. A version the [filter] matches is a pre-release wherever the check reads
    * one: it is left out under [rejectPreReleaseVersions] and its command line option, a build already
-   * on one is still shown a newer one, and `isPreRelease` in a [rejectVersionIf] rule answers for it.
-   * Called more than once, the filters accumulate.
+   * on one is still shown a newer one, and `isPreRelease` in a [rejectVersionIf] rule is true for
+   * it. The convention is part of the built-in check, so it is off wherever that check is, under
+   * `rejectPreReleaseVersions = false` and by default under the `integration` revision. It is given
+   * the version with any build metadata removed, as the markers are, and it is applied to the
+   * version in use as well as to the candidate, which for a constraint declared with no dependency
+   * beside it is the constraint's own range text. Called more than once on a task, the filters
+   * accumulate; a subproject that calls it replaces the root's rather than adding to it, as with
+   * the other predicate settings.
    */
   fun preReleaseVersionIf(filter: Spec<String>) {
     val existing = parameters.preReleaseVersionIf

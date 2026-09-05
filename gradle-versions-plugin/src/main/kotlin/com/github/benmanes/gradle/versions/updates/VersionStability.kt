@@ -1,5 +1,7 @@
 package com.github.benmanes.gradle.versions.updates
 
+import org.gradle.api.specs.Spec
+
 /**
  * Matches the version strings of pre-releases.
  *
@@ -53,7 +55,7 @@ internal object VersionStability {
   /**
    * Returns whether [version] is a pre-release, by a marker in the list above, by Maven's
    * timestamped snapshot form, or by a trailing commit hash. A convention not in the list is added to
-   * the check with the task's `preReleaseVersionIf`.
+   * the check with the task's `preReleaseVersionIf`, see [withConvention].
    */
   @JvmStatic
   fun isPreRelease(version: String): Boolean {
@@ -65,4 +67,17 @@ internal object VersionStability {
       TIMESTAMPED_SNAPSHOT.containsMatchIn(qualified) ||
       COMMIT_HASH.containsMatchIn(qualified)
   }
+
+  /**
+   * Returns the pre-release check with [convention] added, or [isPreRelease] alone when it is null.
+   * The convention is given the version with any build metadata removed, as the markers are, so a
+   * convention written for `2.0-flagged` also matches `2.0-flagged+build.7`.
+   */
+  @JvmStatic
+  fun withConvention(convention: Spec<String>?): (String) -> Boolean =
+    if (convention == null) {
+      ::isPreRelease
+    } else {
+      { version -> isPreRelease(version) || convention.isSatisfiedBy(version.substringBefore('+')) }
+    }
 }

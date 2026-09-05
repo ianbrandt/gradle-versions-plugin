@@ -27,9 +27,11 @@ class ComponentSelectionWithCurrent internal constructor(
   private val onScriptClasspath: Boolean = false,
   /** Called when a rule reads [satisfiesDeclaredBound], so the deprecation can be warned once. */
   private val onDeprecatedBoundRead: () -> Unit = {},
-  /** The pre-release check [isPreRelease] answers, the built-in markers plus the convention added in the build. */
+  /** The check behind [isPreRelease], the built-in markers plus the convention added in the build. */
   private val preReleaseCheck: (String) -> Boolean = VersionStability::isPreRelease,
-  /** False for the run the command line asked for the out-of-bound versions on. */
+  /** False for a run invoked with `--no-reject-pre-release-versions`. */
+  private val preReleaseChecked: Boolean = true,
+  /** False for a run invoked with `--no-reject-out-of-bound-versions`. */
   private val declaredBoundChecked: Boolean = true,
 ) : ComponentSelection by delegate {
   /** Retained so the arity released before the constraint was added still links. */
@@ -102,31 +104,32 @@ class ComponentSelectionWithCurrent internal constructor(
    * Returns whether [version] is a pre-release, by the same check the task's
    * `rejectPreReleaseVersions` property applies, the built-in markers plus any convention added with
    * `preReleaseVersionIf`, so a rule written with it leaves out what the property leaves out. Takes
-   * the version to read, since a rule usually asks it of the candidate and of the version in use in
-   * turn. Answers false for a run invoked with `--no-reject-pre-release-versions`, so that option
-   * shows the pre-releases a rule built on it would leave out as well.
+   * the version to read, for a rule that reads some version other than the candidate's; the
+   * no-argument form is the check as the property applies it. False for every version on a run
+   * invoked with `--no-reject-pre-release-versions`, so that a rule rejecting on it leaves the
+   * pre-releases in for that run too. A rule that negates it rejects everything on such a run.
    */
-  fun isPreRelease(version: String): Boolean = preReleaseCheck(version)
+  fun isPreRelease(version: String): Boolean = preReleaseChecked && preReleaseCheck(version)
 
   /**
    * Returns whether the candidate is a pre-release while the version in use is not, which is what the
    * task's `rejectPreReleaseVersions` property leaves out of the report. Narrower than
    * [isPreRelease] of the candidate alone: a build already on a pre-release is shown the next one,
-   * so for it this answers false. The same as `isPreRelease(candidate.version) &&
-   * !isPreRelease(currentVersion)`, and false for a run invoked with
+   * so for it this is false. The same as `isPreRelease(candidate.version) &&
+   * !isPreRelease(currentVersion)`, and false on a run invoked with
    * `--no-reject-pre-release-versions`, as the one-argument form is.
    */
-  fun isPreRelease(): Boolean = preReleaseCheck(candidate.version) && !preReleaseCheck(currentVersion)
+  fun isPreRelease(): Boolean = preReleaseChecked && preReleaseCheck(candidate.version) && !preReleaseCheck(currentVersion)
 
   /**
    * Returns whether the candidate is an upgrade lying outside the declared bound, which is what the
-   * task's `rejectOutOfBoundVersions` property leaves out of the report. Answers false for a run
-   * invoked with `--no-reject-out-of-bound-versions`, so that option shows the versions a rule built
-   * on it would leave out as well.
+   * task's `rejectOutOfBoundVersions` property leaves out of the report. False for every candidate
+   * on a run invoked with `--no-reject-out-of-bound-versions`, so that a rule rejecting on it leaves
+   * those versions in for that run too. A rule that negates it rejects everything on such a run.
    *
-   * A function rather than a property, so that a Groovy closure and a Kotlin lambda call it alike.
-   * A `val` reads without parentheses in Kotlin and as `outOfDeclaredBound` in Groovy, which would
-   * leave the two documented spellings different.
+   * A function rather than a property, so that one spelling serves both DSLs. A `val` reads without
+   * parentheses in Kotlin, and in Groovy as `outOfDeclaredBound` or as `isOutOfDeclaredBound()`, so
+   * no single spelling would.
    */
   fun isOutOfDeclaredBound(): Boolean = declaredBoundChecked && isUpgradeOutOfDeclaredBound
 

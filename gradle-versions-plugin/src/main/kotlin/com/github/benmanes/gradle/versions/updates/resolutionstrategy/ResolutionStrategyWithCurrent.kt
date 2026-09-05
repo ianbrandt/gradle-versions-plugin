@@ -14,7 +14,9 @@ class ResolutionStrategyWithCurrent internal constructor(
   private val onDeprecatedBoundRead: () -> Unit,
   /** The pre-release check a rule reads, the built-in markers plus the convention added in the build. */
   private val isPreRelease: (String) -> Boolean = VersionStability::isPreRelease,
-  /** False for the run the command line asked for the out-of-bound versions on. */
+  /** False for a run invoked with `--no-reject-pre-release-versions`. */
+  private val preReleaseChecked: Boolean = true,
+  /** False for a run invoked with `--no-reject-out-of-bound-versions`. */
   private val declaredBoundChecked: Boolean = true,
 ) {
   /** Retained so the arity released before the deprecation warning was added still links. */
@@ -71,6 +73,7 @@ class ResolutionStrategyWithCurrent internal constructor(
       currentCoordinates,
       onDeprecatedBoundRead,
       isPreRelease,
+      preReleaseChecked,
       declaredBoundChecked,
     )
   }

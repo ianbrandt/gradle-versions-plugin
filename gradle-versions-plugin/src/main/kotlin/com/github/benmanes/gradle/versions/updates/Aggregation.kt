@@ -168,6 +168,10 @@ internal abstract class DependencyUpdatesParametersService :
         systemPropertyName = "revision",
         configured = chain.firstNotNullOfOrNull { it.revision } ?: DEFAULT_REVISION,
       )
+    val rejectOutOfBoundVersionsFromCommandLine =
+      chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersionsFromCommandLine }
+    val rejectPreReleaseVersionsFromCommandLine =
+      chain.firstNotNullOfOrNull { it.rejectPreReleaseVersionsFromCommandLine }
     return ResolvedParameters(
       revision = revision,
       filterConfigurations =
@@ -189,22 +193,20 @@ internal abstract class DependencyUpdatesParametersService :
         ),
       rejectOutOfBoundVersions =
         settingOf(
-          fromCommandLine = chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersionsFromCommandLine },
+          fromCommandLine = rejectOutOfBoundVersionsFromCommandLine,
           configured = chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersions } ?: true,
         ),
       // Off by default under the integration revision, which selects the newest version whatever
       // its qualifier, snapshots included. An explicit setting still applies there.
       rejectPreReleaseVersions =
         settingOf(
-          fromCommandLine = chain.firstNotNullOfOrNull { it.rejectPreReleaseVersionsFromCommandLine },
+          fromCommandLine = rejectPreReleaseVersionsFromCommandLine,
           configured =
             chain.firstNotNullOfOrNull { it.rejectPreReleaseVersions }
               ?: (revision != INTEGRATION_REVISION),
         ),
-      outOfBoundVersionsRequested =
-        chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersionsFromCommandLine } == false,
-      preReleasesRequested =
-        chain.firstNotNullOfOrNull { it.rejectPreReleaseVersionsFromCommandLine } == false,
+      outOfBoundVersionsRequested = rejectOutOfBoundVersionsFromCommandLine == false,
+      preReleasesRequested = rejectPreReleaseVersionsFromCommandLine == false,
     )
   }
 }
@@ -233,9 +235,10 @@ internal class ResolvedParameters(
   val rejectOutOfBoundVersions: Boolean,
   val rejectPreReleaseVersions: Boolean,
   /**
-   * Whether the command line asked for the out-of-bound versions, or the pre-releases, for this run.
-   * Read by the checks a rule calls, so that the option reaches a rule built on them, where the
-   * configured property does not: a rule written as an exception sets the property off itself.
+   * Whether `--no-reject-out-of-bound-versions`, or `--no-reject-pre-release-versions`, was passed
+   * for this run. Read by the checks a rule calls, so that the option reaches a rule built on them,
+   * where the configured property does not: in a rule written as an exception the property is set
+   * off so that the rule can apply the check.
    */
   val outOfBoundVersionsRequested: Boolean,
   val preReleasesRequested: Boolean,
