@@ -214,8 +214,12 @@ final class DeclaredVersionConstraintSpec extends Specification {
     when:
     def result = run()
 
-    then: 'one warning, not one per candidate and not one per resolution'
-    result.output.count('satisfiesDeclaredBound is deprecated') == 1
+    then: 'one for the resolutions, which share a warning, and one for the report that judges'
+    result.output.count('satisfiesDeclaredBound is deprecated') == 2
+
+    and: 'the second is the report replaying the same rule, not a second resolution'
+    result.output.split('> Task :dependencyUpdates')[1]
+      .count('satisfiesDeclaredBound is deprecated') == 1
   }
 
   def 'the default bound filter reads no deprecated member, so nothing is warned'() {

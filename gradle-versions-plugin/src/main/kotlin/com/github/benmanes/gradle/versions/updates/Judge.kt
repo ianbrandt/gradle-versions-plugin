@@ -46,7 +46,9 @@ internal class Judge(
       false
     } else {
       try {
-        resolutionStrategy.execute(ResolutionStrategyWithCurrent(collector, currentHolder))
+        resolutionStrategy.execute(
+          ResolutionStrategyWithCurrent(collector, currentHolder, deprecatedBoundWarning(logger)),
+        )
         !collector.isEmpty
       } catch (e: Exception) {
         // Each producer already applied this same resolutionStrategy per configuration and, on the

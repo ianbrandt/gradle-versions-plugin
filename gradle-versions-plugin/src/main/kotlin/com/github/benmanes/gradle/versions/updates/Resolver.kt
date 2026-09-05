@@ -35,6 +35,7 @@ import org.gradle.api.attributes.HasConfigurableAttributes
 import org.gradle.api.attributes.java.TargetJvmVersion
 import org.gradle.api.internal.artifacts.DefaultModuleVersionIdentifier
 import org.gradle.api.internal.artifacts.dependencies.DefaultProjectDependencyConstraint
+import org.gradle.api.logging.Logger
 import org.gradle.api.specs.Spec
 import java.io.File
 import java.util.Collections
@@ -73,7 +74,7 @@ class Resolver internal constructor(
     rejectPreReleases = true,
     preReleaseVersionIf = null,
     exemptFromBuiltInChecksIf = null,
-    onDeprecatedBoundRead = deprecatedBoundWarning(project),
+    onDeprecatedBoundRead = deprecatedBoundWarning(project.logger),
   )
 
   /**
@@ -1257,14 +1258,16 @@ internal fun configurationsOf(
 }
 
 /**
- * Warns once, however many rules read the deprecated bound across the project's resolutions,
- * since a rule is evaluated for every candidate of every configuration and script classpath.
+ * Warns once, however many rules read the deprecated bound across the resolutions or the report
+ * passes it is given to, since a rule is evaluated for every candidate of every configuration and
+ * script classpath. Takes the logger rather than the project so that the report can warn too: the
+ * task that judges runs without a project on a restored configuration cache entry.
  */
-internal fun deprecatedBoundWarning(project: Project): () -> Unit {
+internal fun deprecatedBoundWarning(logger: Logger): () -> Unit {
   val warned = AtomicBoolean()
   return {
     if (warned.compareAndSet(false, true)) {
-      project.logger.warn(
+      logger.warn(
         "satisfiesDeclaredBound is deprecated; drop it from rejectVersionIf, " +
           "since rejectOutOfBounds applies the declared bound instead.",
       )

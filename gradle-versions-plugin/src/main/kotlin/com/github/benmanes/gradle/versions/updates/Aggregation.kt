@@ -686,7 +686,7 @@ private fun registerProducer(
 
           val skipped = mutableListOf<SkippedInfo>()
           // Shared by both resolutions below, so the deprecation is warned once for the project.
-          val onDeprecatedBoundRead = deprecatedBoundWarning(project)
+          val onDeprecatedBoundRead = deprecatedBoundWarning(project.logger)
           // A module resolved by both passes below, as a project dependency also declared on the
           // buildscript classpath is, would otherwise be recorded twice.
           val candidates = LinkedHashSet<String>()
