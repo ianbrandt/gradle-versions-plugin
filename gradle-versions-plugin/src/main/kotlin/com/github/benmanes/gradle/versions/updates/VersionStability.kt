@@ -52,11 +52,6 @@ internal object VersionStability {
   private val COMMIT_HASH =
     Regex("""[-._](?=[0-9a-f]*[a-f])[0-9a-f]{7,}$""", RegexOption.IGNORE_CASE)
 
-  // The README's documented recipe, extended to accept mssql-jdbc's `13.4.0.jre11` /
-  // `12.10.0.jre8` and the Ivy `1.0-r2` shape that the verbatim recipe misreads as unstable.
-  private val STABLE_KEYWORDS = listOf("RELEASE", "FINAL", "GA")
-  private val STABLE_VERSION = Regex("""^[0-9,.v-]+([.-](r|jre|android)\d*)?$""", RegexOption.IGNORE_CASE)
-
   /**
    * Returns whether [version] is a pre-release, by a marker in the list above, by Maven's
    * timestamped snapshot form, or by a trailing commit hash. A convention not in the list is added to
@@ -95,18 +90,11 @@ internal object VersionStability {
     if (version == "none") return true
     return when (revision) {
       "integration" -> true
-      "milestone" -> !isIntegrationGrade(version)
-      "release" -> !isIntegrationGrade(version) && isStable(version)
+      "milestone", "release" -> !isIntegrationGrade(version)
       else -> true
     }
   }
 
   private fun isIntegrationGrade(version: String): Boolean =
     version.contains("SNAPSHOT", ignoreCase = true) || TIMESTAMPED_SNAPSHOT.containsMatchIn(version)
-
-  private fun isStable(version: String): Boolean {
-    val upper = version.uppercase()
-    val hasStableKeyword = STABLE_KEYWORDS.any { upper.contains(it) }
-    return hasStableKeyword || STABLE_VERSION.matches(version)
-  }
 }

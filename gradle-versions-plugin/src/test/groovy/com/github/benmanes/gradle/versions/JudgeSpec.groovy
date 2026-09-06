@@ -20,8 +20,8 @@ final class JudgeSpec extends Specification {
 
   private static List<PartialStatus> judge(
     List<PartialStatus> statuses, Map<String, List<String>> candidates, Action strategy,
-    String revision = 'milestone', boolean checkVersionStability = false) {
-    return new Judge(strategy, LOGGER, revision, checkVersionStability).judge(statuses, candidates)
+    String revision = 'milestone') {
+    return new Judge(strategy, LOGGER, revision).judge(statuses, candidates)
   }
 
   private static PartialStatus statusOf(
@@ -321,76 +321,81 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/798')
-  def 'Offers no prerelease candidate below the ceiling under a release revision'() {
-    given: 'a beta and a jre qualified release below the ceiling the rule rejected'
+  def 'Offers no snapshot candidate below the ceiling under a release revision'() {
+    given: 'a snapshot and a jre qualified release below the ceiling the rule rejected'
     def status = statusOf('com.example', 'widget', '1.0', '3.0')
     def candidates = [
-      ':': ['com.example:widget:3.0', 'com.example:widget:2.5-beta1', 'com.example:widget:2.0.jre11'],
+      ':': ['com.example:widget:3.0', 'com.example:widget:2.5-SNAPSHOT', 'com.example:widget:2.0.jre11'],
     ]
 
     when:
     def judged = judge([status], candidates, rejecting('3.0'), 'release')
 
-    then: 'the beta is stepped over and the jre qualified version is read as the release it is'
+    then: 'the snapshot is stepped over and the jre qualified version is offered instead'
     judged[0].latestVersion == '2.0.jre11'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/475')
   def "The row's own version is offerable below the ceiling however unstable it reads"() {
-    given: 'a build already on a beta, under a revision that rejects every other beta'
-    def status = statusOf('com.example', 'widget', '1.0-beta2', '3.0')
+    given: 'a build already on a snapshot, under a revision that rejects every other snapshot'
+    def status = statusOf('com.example', 'widget', '1.0-SNAPSHOT', '3.0')
     def candidates = [
-      ':': ['com.example:widget:3.0', 'com.example:widget:2.0-beta1', 'com.example:widget:1.0-beta2'],
+      ':': ['com.example:widget:3.0', 'com.example:widget:2.0-SNAPSHOT', 'com.example:widget:1.0-SNAPSHOT'],
     ]
 
     when:
     def judged = judge([status], candidates, rejecting('3.0'), 'release')
 
-    then: 'the newer beta is stepped over, but the version the build declares is exempt'
-    judged[0].latestVersion == '1.0-beta2'
+    then: 'the newer snapshot is stepped over, but the version the build declares is exempt'
+    judged[0].latestVersion == '1.0-SNAPSHOT'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def 'Leaves the ceiling as its own build baked it when the report has not opted in'() {
-    given: 'a ceiling whose version string the revision would reject, and a rule that rejects nothing'
-    def status = statusOf('com.example', 'widget', '1.0', '2.4.20-Beta2')
-    def candidates = [':': ['com.example:widget:2.4.20-Beta2', 'com.example:widget:2.0']]
+  def 'Leaves the ceiling as its own build baked it, whatever its version string reads as'() {
+    given: 'a snapshot ceiling the revision would reject below it, and a rule that rejects nothing'
+    def status = statusOf('com.example', 'widget', '1.0', '2.0-SNAPSHOT')
+    def candidates = [':': ['com.example:widget:2.0-SNAPSHOT', 'com.example:widget:1.5']]
 
     when:
-    def judged = judge([status], candidates, rejecting('9.9'), 'release', false)
+    def judged = judge([status], candidates, rejecting('9.9'), 'release')
 
-    then: 'the guard applies below the ceiling only, so the baked verdict is untouched'
-    judged[0].latestVersion == '2.4.20-Beta2'
+    then: 'the revision guard applies below the ceiling only, so the baked verdict is untouched'
+    judged[0].latestVersion == '2.0-SNAPSHOT'
     judged[0].unresolved == null
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def 'Judges the ceiling itself once the report has opted in, with no rules of its own'() {
-    given: 'a ceiling the revision rejects, and a release below it'
-    def status = statusOf('com.example', 'widget', '1.0', '2.4.20-Beta2')
-    def candidates = [':': ['com.example:widget:2.4.20-Beta2', 'com.example:widget:2.0']]
+  def 'Judges the ceiling itself once the report supplies a rule of its own'() {
+    given: 'a snapshot ceiling a report rule rejects, and a release below it'
+    def status = statusOf('com.example', 'widget', '1.0', '2.0-SNAPSHOT')
+    def candidates = [':': ['com.example:widget:2.0-SNAPSHOT', 'com.example:widget:1.5']]
 
     when:
-    def judged = judge([status], candidates, null, 'release', true)
+    def judged = judge([status], candidates, rejecting('2.0-SNAPSHOT'), 'release')
 
-    then: 'the opt-in alone makes the judge applicable, and the row drops to the release'
-    judged[0].latestVersion == '2.0'
+    then: 'the rule reaches the ceiling as well as the candidates below it, and the row drops to the release'
+    judged[0].latestVersion == '1.5'
     judged[0].unresolved == null
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def 'Names the revision when the opted-in guard rejected every candidate'() {
-    given: 'a listing of prereleases only, under a revision that accepts none of them'
-    def status = statusOf('com.example', 'widget', '1.0', '2.4.20-Beta2')
-    def candidates = [':': ['com.example:widget:2.4.20-Beta2', 'com.example:widget:2.0-rc1']]
+  def "Names the report's own rule when it rejected every candidate starting at the ceiling"() {
+    given: 'a listing of snapshots only, all rejected by a rule of the report\'s own'
+    def status = statusOf('com.example', 'widget', '1.0', '2.0-SNAPSHOT')
+    def candidates = [':': ['com.example:widget:2.0-SNAPSHOT', 'com.example:widget:1.5-SNAPSHOT']]
+    def rejectAll = { ResolutionStrategyWithCurrent strategy ->
+      strategy.componentSelection { rules ->
+        rules.all { selection -> selection.reject('rejected by the test rule') }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, null, 'release', true)
+    def judged = judge([status], candidates, rejectAll, 'release')
 
-    then: 'the exhausted walk names the revision rather than rules the report never had'
+    then: 'the exhausted walk names the ceiling\'s own rejection reason'
     judged[0].latestVersion == 'none'
-    judged[0].unresolved.selectorVersion == '2.4.20-Beta2'
-    judged[0].unresolved.failureText == 'Rejected by revision release'
+    judged[0].unresolved.selectorVersion == '2.0-SNAPSHOT'
+    judged[0].unresolved.failureText == 'rejected by the test rule'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -421,35 +426,10 @@ final class JudgeSpec extends Specification {
       [':': ['com.example:widget:2.0', 'com.example:widget:1.0', 'com.example:widget:3.0-Beta1']]
 
     when:
-    def judged = judge([status], candidates, null, 'release', true)
+    def judged = judge([status], candidates, rejecting('3.0-Beta1'))
 
     then: 'the walk steps to the newest candidate below the verdict, not to the end of the list'
     judged[0].latestVersion == '2.0'
     judged[0].unresolved == null
-  }
-
-  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def 'A candidate the report cannot judge never restores a verdict its own revision rejected'() {
-    given: 'the opt-in rejects the verdict, and a rule then reads the metadata the record cannot carry'
-    def status = statusOf('com.example', 'widget', '1.0', '3.0-Beta1')
-    def candidates =
-      [':': ['com.example:widget:3.0-Beta1', 'com.example:widget:2.0']]
-    def strategy = { ResolutionStrategyWithCurrent rs ->
-      rs.componentSelection { rules ->
-        rules.all { selection ->
-          if (selection.metadata == null) {
-            selection.reject('rejected on the metadata the record does not carry')
-          }
-        }
-      }
-    } as Action<ResolutionStrategyWithCurrent>
-
-    when:
-    def judged = judge([status], candidates, strategy, 'release', true)
-
-    then: 'the row is reported unresolved rather than at the pre-release the opt-in ruled out'
-    judged[0].latestVersion == 'none'
-    judged[0].unresolved.selectorVersion == '3.0-Beta1'
-    judged[0].unresolved.failureText == 'Rejected by revision release'
   }
 }

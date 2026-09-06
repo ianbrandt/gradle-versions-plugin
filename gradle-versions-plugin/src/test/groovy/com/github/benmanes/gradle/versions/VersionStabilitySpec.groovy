@@ -200,9 +200,22 @@ final class VersionStabilitySpec extends Specification {
   }
 
   @Unroll
-  def 'release rejects #version'() {
+  def 'milestone rejects #version'() {
     expect:
-    !VersionStability.accepts('release', version)
+    !VersionStability.accepts('milestone', version)
+
+    where:
+    version << ['2.5-SNAPSHOT', '2.5-20240101.120000-1']
+  }
+
+  // 'release' and 'milestone' now behave identically (accept anything but a snapshot), so this
+  // table also carries the version strings that used to need a dedicated 'release accepts' table
+  // for the stable-pattern predicate now removed: a Beta/rc/M1/RC1 pre-release string, and the
+  // jre/android/Ivy-r/v-prefix/Final/RELEASE strings that predicate special-cased.
+  @Unroll
+  def 'milestone accepts #version'() {
+    expect:
+    VersionStability.accepts('milestone', version)
 
     where:
     version << [
@@ -210,18 +223,6 @@ final class VersionStabilitySpec extends Specification {
       '1.0-rc1',
       '3.0.0-M1',
       '3.0.0-RC1',
-      '2.5-SNAPSHOT',
-      '2.5-20240101.120000-1',
-    ]
-  }
-
-  @Unroll
-  def 'release accepts #version'() {
-    expect:
-    VersionStability.accepts('release', version)
-
-    where:
-    version << [
       '13.4.0.jre11',
       '12.10.0.jre8',
       '33.6.0-jre',
@@ -231,24 +232,6 @@ final class VersionStabilitySpec extends Specification {
       '1.0.0.Final',
       '1.0.0-RELEASE',
     ]
-  }
-
-  @Unroll
-  def 'milestone rejects #version'() {
-    expect:
-    !VersionStability.accepts('milestone', version)
-
-    where:
-    version << ['2.5-SNAPSHOT', '2.5-20240101.120000-1']
-  }
-
-  @Unroll
-  def 'milestone accepts #version'() {
-    expect:
-    VersionStability.accepts('milestone', version)
-
-    where:
-    version << ['2.4.20-Beta2', '1.0-rc1', '3.0.0-M1']
   }
 
   @Unroll
@@ -285,14 +268,6 @@ final class VersionStabilitySpec extends Specification {
 
     where:
     version << ['2.5-SNAPSHOT', '2.4.20-Beta2', '13.4.0.jre11']
-  }
-
-  // The README's documented recipe (uppercase contains RELEASE/FINAL/GA) reads a GA substring
-  // as stable even mid-token. Kept for continuity with the documented recipe: a later change to
-  // this is a conscious one.
-  def 'the GA-substring false-stable is kept for continuity with the documented recipe'() {
-    expect:
-    VersionStability.accepts('release', '1.0-legacy')
   }
 
   private ComponentSelection selectionOf(String version) {

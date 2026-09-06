@@ -230,7 +230,6 @@ internal class DependencyUpdatesParameters {
     }
   var checkConstraints: Boolean? = null
   var checkBuildEnvironmentConstraints: Boolean? = null
-  var checkVersionStability: Boolean? = null
   var rejectOutOfBounds: Boolean? = null
   var rejectPreReleases: Boolean? = null
 
@@ -243,10 +242,6 @@ internal class DependencyUpdatesParameters {
   var rejectOutOfBoundsFromCommandLine: Boolean? = null
   var rejectPreReleasesFromCommandLine: Boolean? = null
 }
-
-/** Reads `-DcheckVersionStability`, mirroring how `-Drevision` is read; a bare flag reads as true. */
-internal fun systemCheckVersionStability(): Boolean? =
-  (System.getProperties()["checkVersionStability"] as String?)?.let { it.isEmpty() || it.toBoolean() }
 
 /**
  * Stores the settings of the task of each project that applies the plugin.
@@ -375,8 +370,6 @@ internal abstract class DependencyUpdatesParametersService :
           configured =
             chain.firstNotNullOfOrNull { it.rejectPreReleases } ?: (revision != INTEGRATION_REVISION),
         ),
-      checkVersionStability =
-        systemCheckVersionStability() ?: chain.firstNotNullOfOrNull { it.checkVersionStability } ?: false,
     )
   }
 }
@@ -405,7 +398,6 @@ internal class ResolvedParameters(
   val checkBuildEnvironmentConstraints: Boolean,
   val rejectOutOfBounds: Boolean,
   val rejectPreReleases: Boolean,
-  val checkVersionStability: Boolean,
 )
 
 /** Registers the per-project producers and wires their results into the accumulator task. */
@@ -903,13 +895,7 @@ private fun statusesOf(
       try {
         // Discounted after resolving, which is what runs the default actions that name the
         // configurations whose every dependency a plugin contributed.
-        resolver.resolve(
-          configuration,
-          parameters.revision,
-          nameDeclaringConfiguration,
-          scriptClasspaths,
-          parameters.checkVersionStability,
-        ) {
+        resolver.resolve(configuration, parameters.revision, nameDeclaringConfiguration, scriptClasspaths) {
           declaredKeys.getValue(configuration) - keysOf(configuration, filledByPlugin)
         }.filter { status ->
           // A status with no configuration name, which is what an ordinary declaration

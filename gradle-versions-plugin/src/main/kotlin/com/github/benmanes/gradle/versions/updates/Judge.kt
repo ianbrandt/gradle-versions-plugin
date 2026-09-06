@@ -19,8 +19,7 @@ import org.gradle.api.logging.Logger
  *
  * The report's own [revision] holds every candidate the walk reaches below the ceiling, as
  * [VersionStability] over the version string rather than the status a record has no metadata to
- * carry. Under [checkVersionStability] it holds the ceiling as well, which is what lets a report
- * redefine the revision for rows a build that did not opt in produced.
+ * carry.
  *
  * A row moved below its verdict offers a version that satisfied both builds' rules but that no
  * resolution proved usable, unlike the version the producing build accepted and resolved: the
@@ -31,7 +30,6 @@ internal class Judge(
   resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
   private val logger: Logger,
   private val revision: String,
-  private val checkVersionStability: Boolean,
 ) {
   private val collector = CollectingComponentSelectionRules()
   private val currentHolder = mutableMapOf<Coordinate.Key, Coordinate>()
@@ -74,9 +72,6 @@ internal class Judge(
     )
   }
 
-  /** Whether the report has anything of its own to say about a row, rules or the revision guard. */
-  private val applicable: Boolean = checkVersionStability || hasRules
-
   /**
    * Returns [statuses] with each resolved row's `latestVersion` capped to the newest candidate the
    * aggregating build's own rules accept, reading the candidates from the partial the row's own
@@ -87,7 +82,7 @@ internal class Judge(
     statuses: List<PartialStatus>,
     candidatesByProjectPath: Map<String, List<String>>,
   ): List<PartialStatus> {
-    if (!applicable) {
+    if (!hasRules) {
       return statuses
     }
     return try {
@@ -138,18 +133,12 @@ internal class Judge(
     // synthesized UnresolvedInfo is always the ceiling, so the reason reported must answer why
     // that named version was rejected, not why some older candidate further down the walk was.
     var ceilingReason: String? = null
-    var revisionRejectedCeiling = false
     for (index in ceilingIndex until moduleCandidates.size) {
       val version = moduleCandidates[index].substring(prefix.length)
       // Below the ceiling the report's own revision is all there is to hold a candidate to, as the
-      // record carries no status. At the ceiling it applies only under the opt-in, so a build that
-      // did not ask for it keeps the verdict its own resolution baked. A guard rejection is never
-      // an unjudged one: only the version string is read, which every record carries.
-      if ((checkVersionStability || index > ceilingIndex) && !accepted(status, version)) {
-        if (index == ceilingIndex) {
-          ceilingReason = "Rejected by revision $revision"
-          revisionRejectedCeiling = true
-        }
+      // record carries no status. A guard rejection is never an unjudged one: only the version
+      // string is read, which every record carries.
+      if (index > ceilingIndex && !accepted(status, version)) {
         continue
       }
       val shim = RecordedComponentSelection(status.group, status.name, version)
@@ -160,11 +149,9 @@ internal class Judge(
       // A rule that rejected on the metadata the record does not carry judged the record rather
       // than the candidate, and nothing distinguishes the candidates below it from that same
       // answer, so the row is left as the build that resolved it reported it. Continuing the walk
-      // would offer a version this build's own rules had already rejected above. The exception is a
-      // verdict the report's own revision rejected: the opt-in exists to keep that version out of
-      // the report, so falling back to it would answer the opposite of what the build asked for.
+      // would offer a version this build's own rules had already rejected above.
       if (shim.unjudged) {
-        return if (revisionRejectedCeiling) unresolvedRow(status, ceilingReason) else status
+        return status
       }
       if (!shim.rejected) {
         return if (version == status.latestVersion) status else status.copy(latestVersion = version)

@@ -319,14 +319,6 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     parameters.rejectPreReleasesFromCommandLine = rejectPreReleases
   }
 
-  /** Whether the judge also holds a candidate to [VersionStability]'s string predicate over [revision]. */
-  @get:Input
-  var checkVersionStability: Boolean
-    get() = systemCheckVersionStability() ?: parameters.checkVersionStability ?: false
-    set(value) {
-      parameters.checkVersionStability = value
-    }
-
   @Internal
   @Nullable
   @Transient
@@ -483,7 +475,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     // slot that survives it answers where the live property is gone.
     val strategy: Action<in ResolutionStrategyWithCurrent>? =
       parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
-    val judge = Judge(strategy, logger, revision, checkVersionStability)
+    val judge = Judge(strategy, logger, revision)
     // Read from the slot that survives the cache rather than the live property, which is gone by
     // here on a restored entry. Only a report that merges in another build's rows fills it, so a
     // build that aggregates nobody keeps the answer its own producers already filtered.

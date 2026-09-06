@@ -567,7 +567,9 @@ final class CompositeBuildSpec extends Specification {
         tasks.named('dependencyUpdates').configure {
           checkForGradleUpdate = false
           revision = 'release'
-          checkVersionStability = true
+          rejectVersionIf {
+            candidate.version.contains('-')
+          }
         }
       """.stripIndent()
     coordinatedChild('com.probe:unstable-ceiling:1.0')
@@ -575,7 +577,7 @@ final class CompositeBuildSpec extends Specification {
     when:
     def result = run('dependencyUpdates')
 
-    then: "the child's row is held to the report's own revision and stability opt-in, not to the defaults it was resolved under"
+    then: "the child's row is held to the report's own rule, not to the defaults it was resolved under"
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.output.contains('com.probe:unstable-ceiling [1.0 -> 2.0]')
   }
@@ -2567,63 +2569,8 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def "-DcheckVersionStability with no task property reaches an included build's own producer"() {
-    given: 'the outer aggregates the child, but neither build sets checkVersionStability as a task property'
-    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
-    testProjectDir.newFile('build.gradle') <<
-      """
-        plugins {
-          id 'io.github.ben-manes.versions'
-        }
-
-        dependencies {
-          dependencyUpdatesAggregation 'com.example:child:1.0'
-        }
-      """.stripIndent()
-    testProjectDir.newFolder('child')
-    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
-    testProjectDir.newFile('child/build.gradle') <<
-      """
-        buildscript {
-          dependencies {
-            classpath files($classpathString)
-          }
-        }
-
-        apply plugin: 'io.github.ben-manes.versions'
-
-        group = 'com.example'
-        version = '1.0'
-
-        repositories {
-          maven {
-            url '${mavenRepoUrl}'
-          }
-        }
-
-        configurations.create('tool') {
-          canBeResolved = true
-          canBeConsumed = false
-        }
-
-        dependencies {
-          tool 'com.probe:unstable-ceiling:1.0'
-        }
-      """.stripIndent()
-
-    when:
-    def result = run('dependencyUpdates', ':child:dependencyUpdates',
-      '-DoutputFormatter=plain,json', '-Drevision=release', '-DcheckVersionStability')
-    def included = report('child/')
-
-    then: "the child's own producer baked the stable ceiling, not the pre-release its metadata check alone accepts"
-    result.task(':child:dependencyUpdates').outcome == SUCCESS
-    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '2.0'
-  }
-
-  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def "An opted-in aggregator tightens a merged row whose non-opted-in child baked an unstable ceiling"() {
-    given: "the child leaves checkVersionStability off, so its own producer bakes the pre-release ceiling"
+  def "An aggregator's own rule tightens a merged row whose child baked an unstable ceiling"() {
+    given: "the child's own producer bakes the pre-release ceiling, with no rule of its own"
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -2636,7 +2583,9 @@ final class CompositeBuildSpec extends Specification {
         }
 
         tasks.named('dependencyUpdates').configure {
-          checkVersionStability = true
+          rejectVersionIf {
+            candidate.version.contains('-')
+          }
         }
       """.stripIndent()
     testProjectDir.newFolder('child')
@@ -2676,7 +2625,7 @@ final class CompositeBuildSpec extends Specification {
     def included = report('child/')
     def json = report('')
 
-    then: "the child's own report bakes the pre-release ceiling, but the merged row is tightened by the outer's opt-in"
+    then: "the child's own report bakes the pre-release ceiling, but the merged row is tightened by the outer's rule"
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.task(':child:dependencyUpdates').outcome == SUCCESS
     included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '3.0-Beta1'

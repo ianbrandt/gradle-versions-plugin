@@ -129,30 +129,18 @@ class Resolver internal constructor(
     configuration: Configuration,
     revision: String,
     declaredKeys: () -> Set<Coordinate.Key>,
-  ): Set<DependencyStatus> =
-    resolve(
-      configuration,
-      revision,
-      nameDeclaringConfiguration = false,
-      scriptClasspath = false,
-      checkVersionStability = false,
-      declaredKeys,
-    )
+  ): Set<DependencyStatus> = resolve(configuration, revision, nameDeclaringConfiguration = false, scriptClasspath = false, declaredKeys)
 
   /**
    * Returns the version status as above, naming the configuration of a dependency declared directly
    * against it when asked, which the buildscript's configurations are resolved without, and marking
    * the coordinates of a script classpath, the sole route by which a plugin marker enters a build.
-   * Under [checkVersionStability], the revision filter also requires [VersionStability]'s string
-   * predicate over the candidate's version, AND'd onto the existing metadata-status check rather
-   * than replacing it.
    */
   internal fun resolve(
     configuration: Configuration,
     revision: String,
     nameDeclaringConfiguration: Boolean,
     scriptClasspath: Boolean,
-    checkVersionStability: Boolean,
     declaredKeys: () -> Set<Coordinate.Key>,
   ): Set<DependencyStatus> {
     // Runs the actions that contribute dependencies lazily, so that the declared set below is read
@@ -162,7 +150,7 @@ class Resolver internal constructor(
     configuration.incoming.dependencies
 
     val current = getCurrentCoordinates(configuration, declaredKeys(), nameDeclaringConfiguration, scriptClasspath)
-    val latestConfiguration = createLatestConfiguration(configuration, revision, checkVersionStability, current)
+    val latestConfiguration = createLatestConfiguration(configuration, revision, current)
     val root = latestConfiguration.incoming.resolutionResult.root
     recordAllCandidates(configuration, current)
     return getStatus(current, root)
@@ -211,7 +199,6 @@ class Resolver internal constructor(
   private fun createLatestConfiguration(
     configuration: Configuration,
     revision: String,
-    checkVersionStability: Boolean,
     current: CurrentCoordinates,
   ): Configuration {
     val latest = queryDependencies(configuration, current)
@@ -271,7 +258,6 @@ class Resolver internal constructor(
     addDeclaredBoundFilter(copy, current.coordinates)
     addPreReleaseFilter(copy, current.coordinates)
     addRevisionFilter(copy, revision, current.coordinates)
-    addRevisionFilter(copy, revision, checkVersionStability, current.coordinates)
     addAttributes(copy, configuration)
     addCustomResolutionStrategy(copy, current.coordinates)
 
@@ -475,7 +461,6 @@ class Resolver internal constructor(
   private fun addRevisionFilter(
     configuration: Configuration,
     revision: String,
-    checkVersionStability: Boolean,
     currentCoordinates: Map<Coordinate.Key, Coordinate>,
   ) {
     configuration.resolutionStrategy { componentSelection ->
@@ -487,26 +472,15 @@ class Resolver internal constructor(
           val candidateCoordinate = Coordinate.from(selection.candidate)
           val isCurrent =
             currentCoordinates[candidateCoordinate.key]?.version == candidateCoordinate.version
-          // Evaluated before any metadata is read, both because it is the cheaper check and so
-          // that a string-rejected candidate never triggers the metadata read below, which costs
-          // an extra request per candidate. AND'd onto the metadata check rather than replacing
-          // it: a component's Gradle Module Metadata can declare a real status a stable-looking
-          // version string would otherwise wave through.
-          val stabilityAccepted =
-            !checkVersionStability || isCurrent || VersionStability.accepts(revision, selection.candidate.version)
-          if (!stabilityAccepted) {
-            selection.reject("Rejected by revision $revision")
-          } else {
-            val metadata = selection.metadata
-            val accepted =
-              (metadata == null) ||
-                ((revision == "release") && (metadata.status == "release")) ||
-                ((revision == "milestone") && (metadata.status != "integration")) ||
-                (revision == "integration") || (selection.candidate.version == "none") ||
-                isCurrent
-            if (!accepted) {
-              selection.reject("Component status ${metadata?.status} rejected by revision $revision")
-            }
+          val metadata = selection.metadata
+          val accepted =
+            (metadata == null) ||
+              ((revision == "release") && (metadata.status == "release")) ||
+              ((revision == "milestone") && (metadata.status != "integration")) ||
+              (revision == "integration") || (selection.candidate.version == "none") ||
+              isCurrent
+          if (!accepted) {
+            selection.reject("Component status ${metadata?.status} rejected by revision $revision")
           }
         }
         rules.all { selectionAction ->

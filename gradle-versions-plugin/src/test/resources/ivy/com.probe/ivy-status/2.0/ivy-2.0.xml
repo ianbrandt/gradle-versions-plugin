@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<ivy-module version="2.0">
-  <info organisation="com.probe" module="ivy-status" revision="2.0" status="integration"/>
-  <publications>
-    <artifact name="ivy-status" type="jar" ext="jar"/>
-  </publications>
-</ivy-module>
