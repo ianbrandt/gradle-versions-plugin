@@ -269,7 +269,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
     !result.output.contains('satisfiesDeclaredBound is deprecated')
   }
 
-  def 'the command line option shows what a rule reading isOutOfDeclaredBound left out'() {
+  def 'a rule reading isOutOfDeclaredBound is applied under the command line option too'() {
     given: 'the property is off, so the rule is the only thing that can reject'
     writeBuildFile(
       """
@@ -287,12 +287,12 @@ final class DeclaredVersionConstraintSpec extends Specification {
         }
       """)
 
-    when:
+    when: 'the option turns off a built-in check the build already turned off'
     run('--no-reject-out-of-bound-versions')
 
-    then: 'guice reaches the version it declares it rejects'
+    then: 'the rule is the build\'s own, and still stops guice below the version it rejects'
     report().outdated.dependencies*.name == ['guice']
-    report().outdated.dependencies[0].available.milestone == '3.1'
+    report().outdated.dependencies[0].available.milestone == '3.0'
   }
 
   def 'a constraint stating a range still bounds the report, though its version reads as a range'() {

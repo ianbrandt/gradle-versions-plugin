@@ -14,8 +14,6 @@ class ComponentSelectionRulesWithCurrent internal constructor(
   private val currentCoordinates: Map<Coordinate.Key, Coordinate>,
   private val onDeprecatedBoundRead: () -> Unit,
   private val isPreRelease: (String) -> Boolean = VersionStability::isPreRelease,
-  private val preReleaseChecked: Boolean = true,
-  private val declaredBoundChecked: Boolean = true,
 ) {
   /** Retained so the arity released before the deprecation warning was added still links. */
   constructor(
@@ -128,8 +126,6 @@ class ComponentSelectionRulesWithCurrent internal constructor(
       current.onScriptClasspath,
       onDeprecatedBoundRead,
       isPreRelease,
-      preReleaseChecked,
-      declaredBoundChecked,
     )
   }
 }

@@ -374,7 +374,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies[0].available.milestone == '1.0-beta'
   }
 
-  def 'the command line option shows what a rule reading isPreRelease left out'() {
+  def 'a rule reading isPreRelease is applied under the command line option too'() {
     given: 'the property is off and the rule has no pre-release exemption for the current version, so only the rule hides the beta'
     writeBuildFile('com.example:prerelease-peer:1.0-alpha', '''
           rejectPreReleaseVersions = false
@@ -383,12 +383,12 @@ final class CheckPreReleaseVersionsSpec extends Specification {
           }
         ''')
 
-    when:
+    when: 'the option turns off a built-in check the build already turned off'
     def report = runReport(['--no-reject-pre-release-versions'])
 
-    then:
-    report.outdated.dependencies*.name == ['prerelease-peer']
-    report.outdated.dependencies[0].available.milestone == '1.0-beta'
+    then: 'the rule is the build\'s own, and still hides the beta'
+    report.current.dependencies*.name == ['prerelease-peer']
+    report.outdated.dependencies.isEmpty()
   }
 
   def 'the positive command line option leaves a rule reading isPreRelease alone'() {
@@ -431,7 +431,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies[0].available.milestone == '1.0-beta'
   }
 
-  def 'a Kotlin rule exempting one module from both checks applies, and both options lift the rest'() {
+  def 'a Kotlin build exempting one module from both checks keeps the checks on for the rest, and both options lift the rest'() {
     given: 'the exempted module has a newer version that is both a pre-release and out of bound'
     writeKotlinBuildFile(
       '''
@@ -450,12 +450,8 @@ final class CheckPreReleaseVersionsSpec extends Specification {
           }
         ''',
       '''
-          rejectPreReleaseVersions = false
-          rejectOutOfBoundVersions = false
           preReleaseVersionIf { it.endsWith("-flagged") }
-          rejectVersionIf {
-            candidate.module != "prerelease-widget" && (isPreRelease() || isOutOfDeclaredBound())
-          }
+          exemptFromBuiltInChecksIf { candidate.module == "prerelease-widget" }
         ''')
 
     when:
@@ -471,14 +467,14 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     when: 'both options ask for what the two checks leave out'
     def unfiltered = runReport(['--no-reject-pre-release-versions', '--no-reject-out-of-bound-versions'])
 
-    then: 'the rule built on the two members leaves nothing out for that run'
+    then: 'both checks are off for that run, and the exemption has nothing left to exempt'
     unfiltered.outdated.dependencies*.name.sort() == ['guava', 'prerelease-flagged', 'prerelease-widget']
     unfiltered.outdated.dependencies.find { it.name == 'guava' }.available.milestone == '16.0'
     unfiltered.outdated.dependencies.find { it.name == 'prerelease-flagged' }.available.milestone == '3.0-flagged'
   }
 
-  def 'a Groovy rule exempting one module from both checks applies'() {
-    given:
+  def 'a Groovy build exempting one module from both checks keeps the checks on for the rest'() {
+    given: 'the closure reads candidate bare, as a rejectVersionIf closure does'
     writeDeclarations(
       '''
           implementation('com.example:prerelease-widget') {
@@ -496,12 +492,8 @@ final class CheckPreReleaseVersionsSpec extends Specification {
           }
         ''',
       '''
-          rejectPreReleaseVersions = false
-          rejectOutOfBoundVersions = false
           preReleaseVersionIf { it.endsWith('-flagged') }
-          rejectVersionIf {
-            candidate.module != 'prerelease-widget' && (isPreRelease() || isOutOfDeclaredBound())
-          }
+          exemptFromBuiltInChecksIf { candidate.module == 'prerelease-widget' }
         ''')
 
     when:
@@ -511,6 +503,92 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies*.name == ['prerelease-widget']
     report.outdated.dependencies[0].available.milestone == '1.2-beta'
     report.current.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
+  }
+
+  def 'an exemption reading a negated member is narrowed to the other check'() {
+    given: 'the widget is bounded out of its pre-release, and the exemption keeps the bound check'
+    writeDeclarations(
+      '''
+          implementation('com.example:prerelease-widget') {
+            version {
+              require '1.0'
+              reject '1.2-beta'
+            }
+          }
+          implementation 'com.example:prerelease-flagged:1.0'
+        ''',
+      '''
+          preReleaseVersionIf { it.endsWith('-flagged') }
+          exemptFromBuiltInChecksIf { !isOutOfDeclaredBound() }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then: 'the flagged module is shown its pre-release, and the bounded widget is not'
+    report.outdated.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies[0].available.milestone == '3.0-flagged'
+    report.current.dependencies*.name == ['prerelease-widget']
+  }
+
+  def 'the positive command line option applies the check with the exemption inside it'() {
+    given: 'the property is off in the build, and the exemption covers the widget alone'
+    writeDeclarations(
+      '''
+          implementation 'com.example:prerelease-widget:1.0'
+          implementation 'com.example:prerelease-flagged:1.0'
+        ''',
+      '''
+          rejectPreReleaseVersions = false
+          preReleaseVersionIf { it.endsWith('-flagged') }
+          exemptFromBuiltInChecksIf { candidate.module == 'prerelease-widget' }
+        ''')
+
+    when:
+    def report = runReport(['--reject-pre-release-versions'])
+
+    then: 'the option turns the check on for the flagged module, and the widget stays exempt'
+    report.outdated.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies[0].available.milestone == '1.2-beta'
+    report.current.dependencies*.name == ['prerelease-flagged']
+  }
+
+  def 'a subproject inherits exemptFromBuiltInChecksIf from the root task'() {
+    given: 'the subproject applies the plugin, so it has settings of its own to inherit through'
+    writeMultiProjectBuild('com.example:prerelease-widget:1.0', "exemptFromBuiltInChecksIf { candidate.module == 'prerelease-widget' }", true)
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies[0].available.milestone == '1.2-beta'
+  }
+
+  def 'exemptions added in two calls both apply'() {
+    given: 'the second call exempts the bounded guava'
+    writeDeclarations(
+      '''
+          implementation 'com.example:prerelease-widget:1.0'
+          implementation('com.google.guava:guava') {
+            version {
+              require '15.0'
+              reject '[16.0,)'
+            }
+          }
+        ''',
+      '''
+          exemptFromBuiltInChecksIf { candidate.module == 'prerelease-widget' }
+          exemptFromBuiltInChecksIf { candidate.module == 'guava' }
+        ''')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies*.name.sort() == ['guava', 'prerelease-widget']
+    report.outdated.dependencies.find { it.name == 'guava' }.available.milestone == '16.0'
+    report.outdated.dependencies.find { it.name == 'prerelease-widget' }.available.milestone == '1.2-beta'
   }
 
   def 'under the integration revision the added convention is off with the built-in check'() {

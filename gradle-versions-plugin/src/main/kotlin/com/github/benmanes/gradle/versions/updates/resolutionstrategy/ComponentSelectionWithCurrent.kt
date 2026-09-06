@@ -29,10 +29,6 @@ class ComponentSelectionWithCurrent internal constructor(
   private val onDeprecatedBoundRead: () -> Unit = {},
   /** The check behind [isPreRelease], the built-in markers plus the convention added in the build. */
   private val preReleaseCheck: (String) -> Boolean = VersionStability::isPreRelease,
-  /** False for a run invoked with `--no-reject-pre-release-versions`. */
-  private val preReleaseChecked: Boolean = true,
-  /** False for a run invoked with `--no-reject-out-of-bound-versions`. */
-  private val declaredBoundChecked: Boolean = true,
 ) : ComponentSelection by delegate {
   /** Retained so the arity released before the constraint was added still links. */
   constructor(
@@ -105,33 +101,28 @@ class ComponentSelectionWithCurrent internal constructor(
    * `rejectPreReleaseVersions` property applies, the built-in markers plus any convention added with
    * `preReleaseVersionIf`, so a rule written with it leaves out what the property leaves out. Takes
    * the version to read, for a rule that reads some version other than the candidate's; the
-   * no-argument form is the check as the property applies it. False for every version on a run
-   * invoked with `--no-reject-pre-release-versions`, so that a rule rejecting on it leaves the
-   * pre-releases in for that run too. A rule that negates it rejects everything on such a run.
+   * no-argument form is the check as the property applies it.
    */
-  fun isPreRelease(version: String): Boolean = preReleaseChecked && preReleaseCheck(version)
+  fun isPreRelease(version: String): Boolean = preReleaseCheck(version)
 
   /**
    * Returns whether the candidate is a pre-release while the version in use is not, which is what the
    * task's `rejectPreReleaseVersions` property leaves out of the report. Narrower than
    * [isPreRelease] of the candidate alone: a build already on a pre-release is shown the next one,
    * so for it this is false. The same as `isPreRelease(candidate.version) &&
-   * !isPreRelease(currentVersion)`, and false on a run invoked with
-   * `--no-reject-pre-release-versions`, as the one-argument form is.
+   * !isPreRelease(currentVersion)`.
    */
-  fun isPreRelease(): Boolean = preReleaseChecked && preReleaseCheck(candidate.version) && !preReleaseCheck(currentVersion)
+  fun isPreRelease(): Boolean = preReleaseCheck(candidate.version) && !preReleaseCheck(currentVersion)
 
   /**
    * Returns whether the candidate is an upgrade lying outside the declared bound, which is what the
-   * task's `rejectOutOfBoundVersions` property leaves out of the report. False for every candidate
-   * on a run invoked with `--no-reject-out-of-bound-versions`, so that a rule rejecting on it leaves
-   * those versions in for that run too. A rule that negates it rejects everything on such a run.
+   * task's `rejectOutOfBoundVersions` property leaves out of the report.
    *
    * A function rather than a property, so that one spelling serves both DSLs. A `val` reads without
    * parentheses in Kotlin, and in Groovy as `outOfDeclaredBound` or as `isOutOfDeclaredBound()`, so
    * no single spelling would.
    */
-  fun isOutOfDeclaredBound(): Boolean = declaredBoundChecked && isUpgradeOutOfDeclaredBound
+  fun isOutOfDeclaredBound(): Boolean = isUpgradeOutOfDeclaredBound
 
   override fun toString(): String {
     return """\

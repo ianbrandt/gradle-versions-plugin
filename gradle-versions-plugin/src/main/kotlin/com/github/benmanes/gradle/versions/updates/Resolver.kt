@@ -1,5 +1,6 @@
 package com.github.benmanes.gradle.versions.updates
 
+import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentFilter
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentSelectionWithCurrent
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ResolutionStrategyWithCurrent
 import groovy.xml.XmlSlurper
@@ -55,12 +56,8 @@ class Resolver internal constructor(
   private val rejectPreReleaseVersions: Boolean,
   /** The convention added to the pre-release check in the build, null when none is configured. */
   preReleaseVersionIf: Spec<String>?,
-  /**
-   * Whether `--no-reject-out-of-bound-versions`, or `--no-reject-pre-release-versions`, was passed
-   * for this run, in which case the check a rule calls is false, as [ResolvedParameters] explains.
-   */
-  private val outOfBoundVersionsRequested: Boolean,
-  private val preReleasesRequested: Boolean,
+  /** The candidates exempted from both built-in checks in the build, null when none is configured. */
+  exemptFromBuiltInChecksIf: ComponentFilter?,
   /** Called when a rule reads the deprecated bound, so the warning is printed once per project. */
   private val onDeprecatedBoundRead: () -> Unit,
 ) {
@@ -79,8 +76,7 @@ class Resolver internal constructor(
     rejectOutOfBoundVersions = true,
     rejectPreReleaseVersions = true,
     preReleaseVersionIf = null,
-    outOfBoundVersionsRequested = false,
-    preReleasesRequested = false,
+    exemptFromBuiltInChecksIf = null,
     onDeprecatedBoundRead = deprecatedBoundWarning(project),
   )
 
@@ -90,6 +86,14 @@ class Resolver internal constructor(
    * `isPreRelease` read one definition.
    */
   private val isPreRelease: (String) -> Boolean = VersionStability.withConvention(preReleaseVersionIf)
+
+  /** Whether a candidate is exempt from the built-in checks; nothing is exempt unless configured. */
+  private val isExempt: (ComponentSelectionWithCurrent) -> Boolean =
+    if (exemptFromBuiltInChecksIf == null) {
+      { false }
+    } else {
+      { current -> exemptFromBuiltInChecksIf.reject(current) }
+    }
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
 
@@ -406,7 +410,8 @@ class Resolver internal constructor(
 
   /**
    * Adds the filter that leaves out the upgrades outside the bound declared for a module, which
-   * [ComponentSelectionWithCurrent.isUpgradeOutOfDeclaredBound] identifies.
+   * [ComponentSelectionWithCurrent.isUpgradeOutOfDeclaredBound] identifies, except for a candidate
+   * exempted with `exemptFromBuiltInChecksIf`.
    *
    * Registered first, ahead of the revision filter and the rules configured in the build, since a
    * rejected candidate is not passed to the rules that follow: the revision filter reads each
@@ -425,7 +430,7 @@ class Resolver internal constructor(
       ResolutionStrategyWithCurrent(inner, currentCoordinates, {}, isPreRelease).componentSelection { rules ->
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
-            if (current.isOutOfDeclaredBound()) {
+            if (current.isOutOfDeclaredBound() && !isExempt(current)) {
               current.reject("Rejected by rejectOutOfBoundVersions")
             }
           },
@@ -454,7 +459,7 @@ class Resolver internal constructor(
       ResolutionStrategyWithCurrent(inner, currentCoordinates, {}, isPreRelease).componentSelection { rules ->
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
-            if (current.isPreRelease()) {
+            if (current.isPreRelease() && !isExempt(current)) {
               current.reject("Pre-release rejected by rejectPreReleaseVersions")
             }
           },
@@ -475,8 +480,6 @@ class Resolver internal constructor(
           currentCoordinates,
           onDeprecatedBoundRead,
           isPreRelease,
-          preReleaseChecked = !preReleasesRequested,
-          declaredBoundChecked = !outOfBoundVersionsRequested,
         ),
       )
     }

@@ -2,6 +2,7 @@ package com.github.benmanes.gradle.versions.updates
 
 import com.github.benmanes.gradle.versions.claims
 import com.github.benmanes.gradle.versions.reporter.projectsLabel
+import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentFilter
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ResolutionStrategyWithCurrent
 import org.gradle.api.Action
 import org.gradle.api.GradleException
@@ -93,6 +94,9 @@ internal class DependencyUpdatesParameters {
   @Transient
   var preReleaseVersionIf: Spec<String>? = null
 
+  @Transient
+  var exemptFromBuiltInChecksIf: ComponentFilter? = null
+
   /** Distinguishes a strategy that was explicitly cleared from one that was never set. */
   var resolutionStrategySet: Boolean = false
   var checkConstraints: Boolean? = null
@@ -168,10 +172,6 @@ internal abstract class DependencyUpdatesParametersService :
         systemPropertyName = "revision",
         configured = chain.firstNotNullOfOrNull { it.revision } ?: DEFAULT_REVISION,
       )
-    val rejectOutOfBoundVersionsFromCommandLine =
-      chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersionsFromCommandLine }
-    val rejectPreReleaseVersionsFromCommandLine =
-      chain.firstNotNullOfOrNull { it.rejectPreReleaseVersionsFromCommandLine }
     return ResolvedParameters(
       revision = revision,
       filterConfigurations =
@@ -180,6 +180,7 @@ internal abstract class DependencyUpdatesParametersService :
         chain.firstNotNullOfOrNull { it.filterDeclaredConfigurations } ?: ALL_DECLARED_CONFIGURATIONS,
       resolutionStrategy = chain.firstOrNull { it.resolutionStrategySet }?.resolutionStrategy,
       preReleaseVersionIf = chain.firstNotNullOfOrNull { it.preReleaseVersionIf },
+      exemptFromBuiltInChecksIf = chain.firstNotNullOfOrNull { it.exemptFromBuiltInChecksIf },
       checkConstraints =
         settingOf(
           fromCommandLine = chain.firstNotNullOfOrNull { it.checkConstraintsFromCommandLine },
@@ -193,20 +194,18 @@ internal abstract class DependencyUpdatesParametersService :
         ),
       rejectOutOfBoundVersions =
         settingOf(
-          fromCommandLine = rejectOutOfBoundVersionsFromCommandLine,
+          fromCommandLine = chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersionsFromCommandLine },
           configured = chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersions } ?: true,
         ),
       // Off by default under the integration revision, which selects the newest version whatever
       // its qualifier, snapshots included. An explicit setting still applies there.
       rejectPreReleaseVersions =
         settingOf(
-          fromCommandLine = rejectPreReleaseVersionsFromCommandLine,
+          fromCommandLine = chain.firstNotNullOfOrNull { it.rejectPreReleaseVersionsFromCommandLine },
           configured =
             chain.firstNotNullOfOrNull { it.rejectPreReleaseVersions }
               ?: (revision != INTEGRATION_REVISION),
         ),
-      outOfBoundVersionsRequested = rejectOutOfBoundVersionsFromCommandLine == false,
-      preReleasesRequested = rejectPreReleaseVersionsFromCommandLine == false,
     )
   }
 }
@@ -230,18 +229,11 @@ internal class ResolvedParameters(
   val filterDeclaredConfigurations: Spec<String>,
   val resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
   val preReleaseVersionIf: Spec<String>?,
+  val exemptFromBuiltInChecksIf: ComponentFilter?,
   val checkConstraints: Boolean,
   val checkBuildEnvironmentConstraints: Boolean,
   val rejectOutOfBoundVersions: Boolean,
   val rejectPreReleaseVersions: Boolean,
-  /**
-   * Whether `--no-reject-out-of-bound-versions`, or `--no-reject-pre-release-versions`, was passed
-   * for this run. Read by the checks a rule calls, so that the option reaches a rule built on them,
-   * where the configured property does not: in a rule written as an exception the property is set
-   * off so that the rule can apply the check.
-   */
-  val outOfBoundVersionsRequested: Boolean,
-  val preReleasesRequested: Boolean,
 )
 
 /** Registers the per-project producers and wires their results into the accumulator task. */
@@ -649,8 +641,7 @@ private fun statusesOf(
       rejectOutOfBoundVersions = parameters.rejectOutOfBoundVersions,
       rejectPreReleaseVersions = parameters.rejectPreReleaseVersions,
       preReleaseVersionIf = parameters.preReleaseVersionIf,
-      outOfBoundVersionsRequested = parameters.outOfBoundVersionsRequested,
-      preReleasesRequested = parameters.preReleasesRequested,
+      exemptFromBuiltInChecksIf = parameters.exemptFromBuiltInChecksIf,
       onDeprecatedBoundRead = onDeprecatedBoundRead,
     )
   // Snapshotted for every configuration before the first resolution, as resolving one

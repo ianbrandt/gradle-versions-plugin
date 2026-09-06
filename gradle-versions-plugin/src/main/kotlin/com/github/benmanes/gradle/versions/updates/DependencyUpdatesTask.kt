@@ -479,6 +479,26 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
       if (existing == null) filter else Spec { existing.isSatisfiedBy(it) || filter.isSatisfiedBy(it) }
   }
 
+  /**
+   * Exempts the candidates the [filter] matches from the built-in checks, `rejectPreReleaseVersions`
+   * and `rejectOutOfBoundVersions`, so that the checks stay on for the rest of the build. A candidate
+   * is exempt from both; a filter that reads `!isOutOfDeclaredBound()` or `!isPreRelease()` keeps
+   * that check. The checks are applied with the exemption inside them, so their properties and
+   * command line options apply as they do without it. A [rejectVersionIf] rule is applied whatever
+   * the filter matches. Called more than once on a task, the filters accumulate; a subproject that
+   * calls it replaces the root's rather than adding to it, as with the other predicate settings.
+   */
+  fun exemptFromBuiltInChecksIf(filter: ComponentFilter) {
+    val existing = parameters.exemptFromBuiltInChecksIf
+    parameters.exemptFromBuiltInChecksIf =
+      if (existing == null) filter else ComponentFilter { existing.reject(it) || filter.reject(it) }
+  }
+
+  /** Registers a Groovy [closure] as the exemption, with `candidate` resolved as [rejectVersionIf] does. */
+  fun exemptFromBuiltInChecksIf(closure: Closure<*>) {
+    exemptFromBuiltInChecksIf(closureFilter(closure))
+  }
+
   fun rejectVersionIf(filter: ComponentFilter) {
     resolutionStrategy { strategy ->
       strategy.componentSelection { selection ->
@@ -500,15 +520,16 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
    * selection whether the closure uses the bare implicit receiver or an explicit parameter.
    */
   fun rejectVersionIf(closure: Closure<*>) {
-    rejectVersionIf(
-      ComponentFilter { current ->
-        // Selections are evaluated concurrently, so give each its own copy to set the delegate on.
-        val invocation = closure.clone() as Closure<*>
-        invocation.delegate = current
-        DefaultTypeTransformation.castToBoolean(invocation.call(current))
-      },
-    )
+    rejectVersionIf(closureFilter(closure))
   }
+
+  private fun closureFilter(closure: Closure<*>): ComponentFilter =
+    ComponentFilter { current ->
+      // Selections are evaluated concurrently, so give each its own copy to set the delegate on.
+      val invocation = closure.clone() as Closure<*>
+      invocation.delegate = current
+      DefaultTypeTransformation.castToBoolean(invocation.call(current))
+    }
 
   /**
    * Accumulates the provided strategy with any previously registered one, or clears every
