@@ -339,6 +339,7 @@ command line option, since no command line can express the logic.
 | [`rejectOutOfBoundVersions`](#respecting-declared-bounds) | `true`, `false` | `true` | `--[no-]reject-out-of-bound-versions` |
 | [`rejectPreReleaseVersions`](#filtering-unstable-versions) | `true`, `false` | `true` | `--[no-]reject-pre-release-versions` |
 | [`preReleaseVersionIf`](#filtering-unstable-versions) | a predicate over a version string | nothing added | |
+| [`exemptFromBuiltInChecksIf`](#filtering-unstable-versions) | a predicate over the candidate | nothing exempt | |
 | [`rejectVersionIf`](#filtering-unstable-versions) | a predicate over the candidate | nothing rejected | |
 | [`outputFormatter`](#report-format) | `text`, `json`, `xml`, `html`, a comma separated list of those, or a `Reporter` | `text` | `--output-formatter` |
 | [`outputDir`](#outputdir) | a directory path | `<buildDirectory>/dependencyUpdates` | `--output-dir` |
@@ -784,35 +785,27 @@ tasks.named("dependencyUpdates").configure {
 
 A `rejectVersionIf` filter is applied in addition to the built-in check rather
 than in place of it, and it is still applied when the option is passed, so a
-convention belongs in `preReleaseVersionIf` rather than in a filter. A filter is
-for what the check cannot express: a policy that is not about pre-releases, such
-as pinning a module, or an exception to the check itself, as below. A candidate
-is left out if either rejects it. Neither check can restore what the other
-rejected. To see every published candidate, including the pre-releases, turn
-the built-in filter off with `rejectPreReleaseVersions = false`, or with
+convention belongs in `preReleaseVersionIf` rather than in a filter, and an
+exception belongs in `exemptFromBuiltInChecksIf`, below. A filter is for a
+policy the checks cannot express, such as pinning a module. A candidate is left
+out if either rejects it, and neither can restore what the other rejected. To
+see every published candidate, including the pre-releases, turn the built-in
+filter off with `rejectPreReleaseVersions = false`, or with
 `--no-reject-pre-release-versions` for a single run (see [Command line
 options](#command-line-options)).
 
-Both built-in checks are readable from a rule, so a policy that is the built-in
-one with an exception does not have to restate the check itself.
-`isPreRelease()` is the pre-release check above for the candidate: true when
-the candidate is a pre-release, any convention added with `preReleaseVersionIf`
-included, and the current version is not. `isPreRelease(version)` is the
-version-level test behind it, for a rule that reads some other version.
-`isOutOfDeclaredBound()` is the bound check (see [Respecting declared
-bounds](#respecting-declared-bounds)) for the candidate. Turn the two
-properties off and let the rule apply them, with the exception written into
-it. Under `--no-reject-pre-release-versions` or
-`--no-reject-out-of-bound-versions` the matching member is `false` for every
-candidate on that run, so a single run still shows what a rule rejecting on it
-leaves out. A rule that negates a member rejects everything on such a run. With
-the positive `--reject-pre-release-versions` or `--reject-out-of-bound-versions`
-the built-in check is on ahead of the property, and it is applied before any
-rule, so for that run the exception is not applied either.
-
-Here one module is allowed both its pre-releases and the versions its
-declaration bounds out, while every other module is held to the same two
-checks:
+A module can be exempted from both built-in checks, with the checks left on for
+the rest of the build. `exemptFromBuiltInChecksIf` takes the same predicate
+over the candidate as `rejectVersionIf`; a candidate it matches is not held to
+`rejectPreReleaseVersions` or to `rejectOutOfBoundVersions`. The exemption is
+applied inside the checks, so the two properties and their options apply as
+they do without it: `--no-reject-pre-release-versions` still turns the check
+off for a single run, and the positive option turns it on with the exemption in
+place. Called more than once on a task, the predicates accumulate; a subproject
+that calls it replaces the root's rather than adding to it (see [Shared task
+settings](#shared-task-settings)). Here one module is allowed both its
+pre-releases and the versions its declaration bounds out, while every other
+module is held to the same two checks:
 
 <details open>
 <summary>Kotlin</summary>
@@ -821,11 +814,7 @@ checks:
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 
 tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
-  rejectPreReleaseVersions = false
-  rejectOutOfBoundVersions = false
-  rejectVersionIf {
-    candidate.module != "guava" && (isPreRelease() || isOutOfDeclaredBound())
-  }
+  exemptFromBuiltInChecksIf { candidate.module == "guava" }
 }
 ```
 
@@ -836,15 +825,23 @@ tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
 
 ```groovy
 tasks.named("dependencyUpdates").configure {
-  rejectPreReleaseVersions = false
-  rejectOutOfBoundVersions = false
-  rejectVersionIf {
-    candidate.module != 'guava' && (isPreRelease() || isOutOfDeclaredBound())
-  }
+  exemptFromBuiltInChecksIf { candidate.module == 'guava' }
 }
 ```
 
 </details>
+
+Both built-in checks are readable from a rule, so a policy of your own can
+build on them without restating them. `isPreRelease()` is the pre-release check
+above for the candidate: true when the candidate is a pre-release, any
+convention added with `preReleaseVersionIf` included, and the current version
+is not. `isPreRelease(version)` is the version-level test behind it, for a rule
+that reads some other version. `isOutOfDeclaredBound()` is the bound check (see
+[Respecting declared bounds](#respecting-declared-bounds)) for the candidate.
+A candidate is exempt from both checks, and a negated member keeps one:
+`exemptFromBuiltInChecksIf { candidate.module == "guava" && !isOutOfDeclaredBound() }`
+lets guava's pre-releases through and still holds it to its bound. A rule is
+applied on every run, so the options do not reach what a rule rejects.
 
 Turn the built-in filter off for a policy of your own, written as a whole in
 a component selection rule. There is no agreed standard for what counts as
@@ -1089,10 +1086,11 @@ can bound the same module. The query that finds candidates is deliberately
 unbounded, so a rule that applies a declared bound reads it from
 `versionConstraint` rather than restating it. It is null for a module no
 declaration was matched to, such as one a substitution rule resolved to, so
-guard for that. The verdict the property applies is readable as
-`isOutOfDeclaredBound()`, so a rule holding only part of the build to its
-bounds writes the exception alone (see [Filtering unstable
-versions](#filtering-unstable-versions)). `satisfiesDeclaredBound`, the verdict
+guard for that. A module exempted with `exemptFromBuiltInChecksIf` is not
+held to its bound (see [Filtering unstable
+versions](#filtering-unstable-versions)), and the verdict the property applies
+is readable as `isOutOfDeclaredBound()`, for a rule of the build's own.
+`satisfiesDeclaredBound`, the verdict
 a rule applied before the property did, is deprecated and will be removed in a
 later release.
 
@@ -1993,8 +1991,8 @@ task by that name now fails with a duplicate-task error—rename yours.
 The settings that control resolution (`revision`, `rejectVersionIf` or a full
 `resolutionStrategy`, `filterConfigurations`, `filterDeclaredConfigurations`,
 `checkConstraints`, `checkBuildEnvironmentConstraints`,
-`rejectOutOfBoundVersions`, `rejectPreReleaseVersions`, and
-`preReleaseVersionIf`) are inherited from
+`rejectOutOfBoundVersions`, `rejectPreReleaseVersions`, `preReleaseVersionIf`,
+and `exemptFromBuiltInChecksIf`) are inherited from
 the nearest project up the hierarchy whose task set them. Configuring the root
 project's task therefore covers every project, unless a subproject configures
 its own (see [Task properties](#task-properties)).
@@ -2391,9 +2389,9 @@ the newest of them before:
 >   and it is off wherever the property is.
 > - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
 >   bound is now applied by `rejectOutOfBoundVersions`. A build that needs an
->   exception for a module it bounds turns the property off and calls
->   `isOutOfDeclaredBound()` from the rule, with the exception written in (see
->   [Filtering unstable versions](#filtering-unstable-versions)). The member is
+>   exception for a module it bounds exempts it with
+>   `exemptFromBuiltInChecksIf` (see [Filtering unstable
+>   versions](#filtering-unstable-versions)). The member is
 >   deprecated and will be removed in a later release; a warning is printed
 >   once per project when a rule reads it, and a Kotlin DSL build that treats
 >   compiler warnings as errors has to drop the clause before upgrading. With
