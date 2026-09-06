@@ -174,6 +174,40 @@ final class IsolatedProjectsAggregationSpec extends Specification {
     result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "Keeps the root's exemption from the built-in checks on the store run and on the hit"() {
+    given: "a module the built-in check would withhold, exempted by the root, with a subproject " +
+      'declaring a rule of its own so that the report judges rows resolved under another policy'
+    new File(testProjectDir.root, 'build.gradle') <<
+      """
+        dependencyUpdates.exemptFromBuiltInChecksIf {
+          candidate.module == 'prerelease-widget'
+        }
+      """.stripIndent()
+    new File(testProjectDir.root, 'app/build.gradle') <<
+      """
+        dependencies {
+          implementation 'com.example:prerelease-widget:1.0'
+        }
+      """.stripIndent()
+    new File(testProjectDir.root, 'lib/build.gradle') <<
+      """
+        dependencyUpdates.filterDeclaredConfigurations { true }
+      """.stripIndent()
+
+    when:
+    def store = run()
+    def hit = run()
+
+    then: 'the exemption survives into the task the cache restores, so both runs report the same'
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    hit.output.contains('Reusing configuration cache')
+    // Without the exemption the judge withholds the pre-release and the row reads as up to date,
+    // which is what a report that lost it across the cache prints.
+    store.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]')
+    hit.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]')
+  }
+
   def 'Omits and warns about a project that does not apply the plugin itself'() {
     given:
     new File(testProjectDir.root, 'lib/build.gradle').text =
