@@ -483,6 +483,109 @@ final class DivergentVersionsSpec extends Specification {
     hit.output.count('com.google.inject:guice') == 1
   }
 
+  def 'Collapses the split under the cache when the subprojects are configured before the root'() {
+    given: 'the rules of both subprojects declared before the root configures its own task'
+    testProjectDir.newFile('settings.gradle') << "include 'app', 'lib'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        subprojects {
+          apply plugin: 'java'
+          apply plugin: 'io.github.ben-manes.versions'
+
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+
+          dependencies {
+            implementation 'com.google.inject:guice:2.0'
+          }
+
+          dependencyUpdates {
+            checkForGradleUpdate = false
+            rejectVersionIf { false }
+          }
+        }
+
+        dependencyUpdates {
+          checkForGradleUpdate = false
+          rejectVersionIf { it.candidate.version == '3.1' }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('app')
+    testProjectDir.newFolder('lib')
+
+    when:
+    def store = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+    def hit = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+
+    then: 'the root still caps the rows a subproject registered its rule ahead of it for'
+    store.output.contains(' - com.google.inject:guice [2.0 -> 3.0]')
+    store.output.count('com.google.inject:guice') == 1
+    hit.output.contains('Reusing configuration cache')
+    hit.output.count('com.google.inject:guice') == 1
+  }
+
+  def 'Collapses the split under the cache when a subproject rule precedes its own plugin'() {
+    given: "a subproject declaring its rule through the task type, above the line applying the plugin"
+    testProjectDir.newFile('settings.gradle') << "include 'app'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'java'
+          id 'io.github.ben-manes.versions'
+        }
+
+        allprojects {
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+        }
+
+        dependencies {
+          implementation 'com.google.inject:guice:2.0'
+        }
+
+        dependencyUpdates {
+          checkForGradleUpdate = false
+          rejectVersionIf { it.candidate.version == '3.1' }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('app')
+    testProjectDir.newFile('app/build.gradle') <<
+      """
+        apply plugin: 'java'
+
+        tasks.withType(com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask)
+          .configureEach {
+            rejectVersionIf { false }
+          }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        dependencies {
+          implementation 'com.google.inject:guice:2.0'
+        }
+      """.stripIndent()
+
+    when:
+    def store = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+    def hit = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+
+    then: 'the rule set before the task was registered still marks the report above it'
+    store.output.contains(' - com.google.inject:guice [2.0 -> 3.0]')
+    store.output.count('com.google.inject:guice') == 1
+    hit.output.contains('Reusing configuration cache')
+    hit.output.count('com.google.inject:guice') == 1
+  }
+
   def 'Keeps every row of a three way split in one section'() {
     given:
     writeSplitBuild([

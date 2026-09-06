@@ -496,4 +496,64 @@ final class ConfigurationFilterSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     !result.output.contains('com.google.guava:guava')
   }
+
+  def "Leaves out a subproject's entry that the aggregating report's own filter rejects"() {
+    given: 'a subproject widening the filter it inherits, over a configuration the root leaves out'
+    testProjectDir.newFile('settings.gradle') << "include 'app'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'java'
+          id 'io.github.ben-manes.versions'
+        }
+
+        allprojects {
+          apply plugin: 'io.github.ben-manes.versions'
+
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+
+          dependencyUpdates {
+            checkForGradleUpdate = false
+          }
+        }
+
+        dependencies {
+          implementation 'com.google.inject:guice:3.1'
+        }
+
+        dependencyUpdates {
+          filterDeclaredConfigurations { it != 'tool' }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('app')
+    testProjectDir.newFile('app/build.gradle') <<
+      """
+        apply plugin: 'java'
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.google.guava:guava:15.0'
+        }
+
+        dependencyUpdates {
+          filterDeclaredConfigurations { true }
+        }
+      """.stripIndent()
+
+    when:
+    def result = run([':dependencyUpdates'])
+
+    then: "the report applies its own filter to every row, not only to the ones it resolved"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    !result.output.contains('com.google.guava:guava')
+    result.output.contains('com.google.inject:guice')
+  }
 }
