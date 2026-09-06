@@ -143,16 +143,17 @@ internal class DependencyUpdatesParameters {
   var filterDeclaredConfigurations: Spec<String>? = null
     set(value) {
       field = value
-      if (judgesAnotherBuild) {
+      if (judgesAnotherPolicy) {
         judgingFilterDeclaredConfigurations = value
       }
+      onOwnJudgingRule?.invoke()
     }
 
   @Transient
   var resolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
     set(value) {
       field = value
-      if (judgesAnotherBuild) {
+      if (judgesAnotherPolicy) {
         judgingResolutionStrategy = value
       }
     }
@@ -164,12 +165,12 @@ internal class DependencyUpdatesParameters {
   var exemptFromBuiltInChecksIf: ComponentFilter? = null
 
   /**
-   * Whether a row this report holds was resolved by another build, which is the only place judging
-   * can change an answer. Turning it on captures the strategy and the filter for the judge, and
-   * they stay captured as either is reconfigured, so they may be set in any order and any number of
-   * times.
+   * Whether a row this report holds was resolved under rules other than this task's, which is the
+   * only place judging can change an answer. Turning it on captures the strategy and the filter for
+   * the judge, and they stay captured as either is reconfigured, so they may be set in any order
+   * and any number of times.
    */
-  var judgesAnotherBuild: Boolean = false
+  var judgesAnotherPolicy: Boolean = false
     set(value) {
       field = value
       if (value) {
@@ -180,8 +181,9 @@ internal class DependencyUpdatesParameters {
 
   /**
    * The strategy the report judges by, held where the configuration cache carries it into the task
-   * rather than dropping it with the transient property above. Only a report that merges in another
-   * build's rows sets it, so every other build keeps its exemption from serializing the action.
+   * rather than dropping it with the transient property above. Only a report holding rows that
+   * another project or build resolved by rules of its own sets it, so every other report keeps its
+   * exemption from serializing the action.
    */
   var judgingResolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
     set(value) {
@@ -192,7 +194,7 @@ internal class DependencyUpdatesParameters {
   /**
    * The filter the report leaves entries out by, held where the configuration cache carries it into
    * the task rather than dropping it with the transient property above. Set on the same terms as
-   * the strategy, so a build that judges nobody keeps its exemption from serializing a predicate.
+   * the strategy, so a report that judges nobody keeps its exemption from serializing a predicate.
    */
   var judgingFilterDeclaredConfigurations: Spec<String>? = null
     set(value) {
@@ -209,8 +211,23 @@ internal class DependencyUpdatesParameters {
   @Transient
   var onJudgingCapture: ((Any?) -> Unit)? = null
 
+  /**
+   * Notified as this project declares a judging rule of its own, so that every report above it
+   * captures its own rules for the judge. A rule declared here makes the rows this project resolves
+   * answer to a policy an ancestor's report does not share, which is the case its judge exists for.
+   * Transient, for the reason the notification above is.
+   */
+  @Transient
+  var onOwnJudgingRule: (() -> Unit)? = null
+
   /** Distinguishes a strategy that was explicitly cleared from one that was never set. */
   var resolutionStrategySet: Boolean = false
+    set(value) {
+      field = value
+      if (value) {
+        onOwnJudgingRule?.invoke()
+      }
+    }
   var checkConstraints: Boolean? = null
   var checkBuildEnvironmentConstraints: Boolean? = null
   var checkVersionStability: Boolean? = null
@@ -269,13 +286,49 @@ internal abstract class DependencyUpdatesParametersService :
   /** Returns where an earlier release wrote the partial result of each project of the build. */
   fun legacyPartials(): List<RegularFile> = legacy.map { it.get() }
 
+  /** The projects that declared a judging rule of their own, rather than inheriting one. */
+  private val ownJudgingRules = ConcurrentHashMap.newKeySet<String>()
+
   /** Publishes the settings of the given project's task to the projects that resolve with them. */
   fun register(
     path: String,
     parameters: DependencyUpdatesParameters,
   ) {
     byPath[path] = parameters
+    parameters.onOwnJudgingRule = { noteOwnJudgingRule(path) }
+    // Registered as the task is realized, which is before the build script configures it, so a rule
+    // already declared here came from a plugin or an earlier hook and would otherwise go unseen.
+    if (parameters.resolutionStrategySet || parameters.filterDeclaredConfigurations != null) {
+      noteOwnJudgingRule(path)
+    }
+    if (ownJudgingRules.any { isBelow(it, path) }) {
+      parameters.judgesAnotherPolicy = true
+    }
   }
+
+  /**
+   * Records that the given project resolves by rules of its own, and tells every report above it
+   * that judging can now change one of its rows. Read in both directions, as a project may declare
+   * its rule before or after an ancestor's task is registered. Each side publishes what it knows
+   * before reading what the other published, so that neither misses the other where isolated
+   * projects configures the two at once.
+   */
+  private fun noteOwnJudgingRule(path: String) {
+    if (!ownJudgingRules.add(path)) {
+      return
+    }
+    byPath.forEach { (ancestor, parameters) ->
+      if (isBelow(path, ancestor)) {
+        parameters.judgesAnotherPolicy = true
+      }
+    }
+  }
+
+  /** Whether the first path names a project beneath the second. */
+  private fun isBelow(
+    path: String,
+    ancestor: String,
+  ): Boolean = path != ancestor && (ancestor == ":" || path.startsWith("$ancestor:"))
 
   /** Returns the effective settings, taking each property from the nearest ancestor that set it. */
   fun resolve(path: String): ResolvedParameters {
@@ -460,10 +513,10 @@ internal fun registerAggregation(
     // strategy the producers read, so a report that can hold another build's rows keeps a copy that
     // survives. Marked as each dependency is declared rather than at a moment of this project's
     // evaluation, so that a coordinate a later hook adds is still seen. Only a coordinate names
-    // another build: the project dependencies declared below are module dependencies too, and the
-    // rows they reach were resolved by this build's own policy already.
+    // another build; a project of this build is marked instead where it declares a rule of its own,
+    // which the service does as the rule is declared.
     if (dependency is ExternalModuleDependency) {
-      accumulator.configure { task -> task.parameters.judgesAnotherBuild = true }
+      accumulator.configure { task -> task.parameters.judgesAnotherPolicy = true }
     }
   }
 

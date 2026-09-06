@@ -379,6 +379,27 @@ final class DivergentVersionsSpec extends Specification {
     !result.output.contains('declared in')
   }
 
+  def 'Collapses the split on the configuration cache store and on the hit'() {
+    given: 'a root rejecting a version that neither subproject rejects'
+    writeSplitBuild(
+      [':': "it.candidate.version == '3.1'", 'app': 'false', 'lib': 'false'])
+
+    when:
+    def store = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+    def hit = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+
+    then: 'the root caps the rows of both subprojects however the report reached the judge'
+    store.output.contains(' - com.google.inject:guice [2.0 -> 3.0]')
+    store.output.count('com.google.inject:guice') == 1
+    !store.output.contains('declared in')
+
+    and:
+    hit.output.contains('Reusing configuration cache')
+    hit.output.contains(' - com.google.inject:guice [2.0 -> 3.0]')
+    hit.output.count('com.google.inject:guice') == 1
+    !hit.output.contains('declared in')
+  }
+
   def 'Keeps every row of a three way split in one section'() {
     given:
     writeSplitBuild([
