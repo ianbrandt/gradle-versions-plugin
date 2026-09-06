@@ -116,7 +116,7 @@ final class RejectVersionIfSpec extends Specification {
     then: 'the rejection is the record keeping no metadata, not the policy, so the row is unchanged'
     result.task(':dependencyUpdates').outcome == SUCCESS
     report.outdated.dependencies*.name == ['guava']
-    report.outdated.dependencies[0].available.milestone == '16.0-rc1'
+    report.outdated.dependencies[0].available.milestone == '16.0'
     report.unresolved.dependencies.isEmpty()
   }
 
@@ -379,7 +379,7 @@ final class RejectVersionIfSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "a component selection rule on the build's own configuration still caps the report"() {
-    given: 'a configuration-level rule rejects rc candidates, and a rejectVersionIf targeting another ' +
+    given: 'a configuration-level rule rejects the 16.0 line, and a rejectVersionIf targeting another ' +
       'dependency forces the judge to replay rules over every row, guava included'
     buildFile = writeScript('''
       dependencies {
@@ -390,8 +390,8 @@ final class RejectVersionIfSpec extends Specification {
         resolutionStrategy {
           componentSelection {
             all { selection ->
-              if (selection.candidate.version.contains('rc')) {
-                selection.reject('Release candidate')
+              if (selection.candidate.version.startsWith('16.')) {
+                selection.reject('Not yet adopted')
               }
             }
           }
@@ -415,7 +415,7 @@ final class RejectVersionIfSpec extends Specification {
       .build()
     def report = new JsonSlurper().parseText(new File(reportFolder, 'report.json').text)
 
-    then: 'guava stays capped below every rc candidate the judge replays rules over, and guice stops at 3.0'
+    then: 'guava stays capped below every 16.0 candidate the judge replays rules over, and guice stops at 3.0'
     result.task(':dependencyUpdates').outcome == SUCCESS
     report.current.dependencies*.name == ['guava']
     report.outdated.dependencies*.name == ['guice']

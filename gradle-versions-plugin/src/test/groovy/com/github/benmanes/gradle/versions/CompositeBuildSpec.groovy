@@ -481,7 +481,7 @@ final class CompositeBuildSpec extends Specification {
 
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
   }
 
@@ -522,7 +522,7 @@ final class CompositeBuildSpec extends Specification {
 
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
   }
 
   def 'Aggregates an included build from a report the settings plugin registered'() {
@@ -548,7 +548,7 @@ final class CompositeBuildSpec extends Specification {
 
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
   }
 
   def 'Judges an included build that configures nothing by the aggregating reports own settings'() {
@@ -652,7 +652,7 @@ final class CompositeBuildSpec extends Specification {
 
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
 
     where:
@@ -724,7 +724,7 @@ final class CompositeBuildSpec extends Specification {
 
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
   }
 
@@ -740,7 +740,7 @@ final class CompositeBuildSpec extends Specification {
 
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
     // Asserted so that the case still distinguishes if the override ever stops taking effect: the
     // results are resolved as artifacts, so a build directory the aggregator cannot guess is moot.
@@ -2570,7 +2570,7 @@ final class CompositeBuildSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
   def "An aggregator's own rule tightens a merged row whose child baked an unstable ceiling"() {
-    given: "the child's own producer bakes the pre-release ceiling, with no rule of its own"
+    given: "the child bakes the pre-release ceiling with the built-in check off, and sets no rule of its own"
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -2617,6 +2617,10 @@ final class CompositeBuildSpec extends Specification {
         dependencies {
           tool 'com.probe:unstable-ceiling:1.0'
         }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectPreReleases = false
+        }
       """.stripIndent()
 
     when:
@@ -2634,7 +2638,7 @@ final class CompositeBuildSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A merged row never overrules the outer's own verdict for a coordinate it declares too"() {
-    given: 'both builds declare guava, and only the outer rejects the release candidate'
+    given: 'both builds declare guava, and only the outer rejects the 16.0 line'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -2660,7 +2664,7 @@ final class CompositeBuildSpec extends Specification {
 
         tasks.named('dependencyUpdates').configure {
           rejectVersionIf {
-            candidate.version.contains('-rc')
+            candidate.version.startsWith('16.')
           }
         }
       """.stripIndent()
@@ -2709,6 +2713,6 @@ final class CompositeBuildSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     json.outdated.dependencies.every { it.name != 'guava' }
     json.current.dependencies.find { it.name == 'guava' }?.version == '15.0'
-    !result.output.contains('com.google.guava:guava [15.0 -> 16.0-rc1]')
+    !result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
   }
 }
