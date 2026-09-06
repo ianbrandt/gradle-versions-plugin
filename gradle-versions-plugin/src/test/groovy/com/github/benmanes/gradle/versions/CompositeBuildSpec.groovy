@@ -496,14 +496,14 @@ final class CompositeBuildSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     // ':child:sub' declares this one, and aggregates no project of its own.
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
-    // The child's root project declares this one. Naming a subproject leaves the root out, where
-    // naming the root would bring the subproject: a project brings what it aggregates, and only a
-    // build's root project aggregates that whole build.
+    // The child's root project declares this one. An entry for a subproject leaves the root out,
+    // where an entry for the root merges the subproject as well: a declaration reaches what that
+    // project aggregates, and only a build's root project aggregates the whole build.
     !result.output.contains('com.google.guava')
   }
 
   def 'Aggregates an included build from a Kotlin build script'() {
-    given: "the README's own Kotlin snippet, whose typed accessor exists only if the plugin created the configuration first"
+    given: "the README's Kotlin snippet, where the typed accessor exists only if the plugin created the configuration first"
     testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
     testProjectDir.newFile('build.gradle.kts') <<
       """
@@ -551,7 +551,7 @@ final class CompositeBuildSpec extends Specification {
     result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
   }
 
-  def 'Judges an included build that configures nothing by the aggregating reports own settings'() {
+  def "Judges an included build with nothing configured by the aggregating report's settings"() {
     given: 'a child declaring a module whose ceiling is a pre-release string, and setting no rules of its own'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
@@ -582,7 +582,7 @@ final class CompositeBuildSpec extends Specification {
     result.output.contains('com.probe:unstable-ceiling [1.0 -> 2.0]')
   }
 
-  /** Writes an included build that publishes by the coordinates an aggregation entry names. */
+  /** Writes an included build that publishes by the coordinates an aggregation entry declares. */
   private void coordinatedChild(String dependency = 'com.google.guava:guava:15.0') {
     testProjectDir.newFolder('child')
     testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'\n"
@@ -634,7 +634,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   // The results are published as the graph edges rather than as the files the aggregate collected,
-  // which Gradle 9 refuses to resolve for a consumer that holds no lock on the included build.
+  // which Gradle 9 will not resolve for a consumer without a lock on the included build.
   // Gradle 9 requires JVM 17.
   @Requires({ jvm.java17Compatible })
   @Unroll
@@ -659,7 +659,7 @@ final class CompositeBuildSpec extends Specification {
     gradleVersion << ['9.0.0', '9.6.1']
   }
 
-  def 'Aggregates the projects of an included build that share a group and name'() {
+  def 'Aggregates two projects of an included build with the same group and name'() {
     given:
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
@@ -1839,7 +1839,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "An aggregation entry does not carry the build the build it names includes"() {
+  def "An aggregation entry does not reach the build that its declared build includes"() {
     given: "a root naming the child alone, where the child names its own included grandchild"
     nestedComposite(false)
 
@@ -1853,7 +1853,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "An aggregation entry names an included build of an included build"() {
+  def "An aggregation entry declares an included build of an included build"() {
     given: 'the same tree, with the root naming the grandchild build as well'
     nestedComposite(true)
 
@@ -1955,7 +1955,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   /**
-   * The same composite with a Kotlin build script, whose rule is written as the README's own recipe
+   * The same composite with a Kotlin build script, where the rule is written as the README's recipe
    * is: a call to a function the script declares. Such a call binds the script into the lambda.
    */
   private void kotlinJudgedComposite(String rule) {
@@ -2055,7 +2055,7 @@ final class CompositeBuildSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A Kotlin rule calling a function its own build script declares still judges the report"() {
-    given: 'the rule written as the README recipe is, so the lambda holds the script'
+    given: 'the rule written as the README recipe is, so the lambda captures the script'
     kotlinJudgedComposite('candidate.version.isRejected()')
 
     when:
@@ -2070,7 +2070,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "A Kotlin rule that holds no build script keeps the configuration cache"() {
+  def "A Kotlin rule that reaches no build script keeps the configuration cache"() {
     given: 'the same composite, with the rule written so that it reads nothing the script declares'
     kotlinJudgedComposite('candidate.version == rejected')
 
@@ -2098,7 +2098,7 @@ final class CompositeBuildSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     !result.output.contains('com.google.inject:guice')
     // The survivor proves the drop is per-entry rather than an emptied report, and that a row
-    // naming no configuration is kept by the report's filter as it is by the producer's.
+    // with no configuration on it is kept by the report's filter as it is by the producer's.
     result.output.contains('com.google.guava:guava')
   }
 
@@ -2136,7 +2136,7 @@ final class CompositeBuildSpec extends Specification {
     result.output.contains('filterDeclaredConfigurations')
   }
 
-  /** The filtering composite with a Kotlin build script whose filter reads what the script declares. */
+  /** The filtering composite with a Kotlin build script, its filter reading what the script declares. */
   private void kotlinFilteringComposite() {
     testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
     testProjectDir.newFile('build.gradle.kts') <<
@@ -2173,7 +2173,7 @@ final class CompositeBuildSpec extends Specification {
     judgedChild()
   }
 
-  /** An aggregating build that filters by a name only the build it includes declares. */
+  /** An aggregating build that filters by a name declared only in the build it includes. */
   private String filteringOuter() {
     return """
         apply plugin: 'java'
@@ -2272,7 +2272,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "A report that cannot apply its own rules says so rather than judging nothing quietly"() {
+  def "A report that cannot apply its own rules warns rather than judging nothing quietly"() {
     given: 'a strategy reading a script object as it registers, which a serialized closure may not do'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
@@ -2334,12 +2334,12 @@ final class CompositeBuildSpec extends Specification {
 
     then: 'the rows stay as their own builds resolved them, and the report names the reason'
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains('The report kept each dependency as the build that resolved it reported it')
+    result.output.contains('Every dependency is left as the build that resolved it reported it')
     result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "An including build's report offers no candidate its own revision rejects"() {
+  def "An including build's report shows no candidate its own revision rejects"() {
     given: 'a listing whose integration version sits below the release the child resolved'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
@@ -2507,7 +2507,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "A merged row's declared bound holds through the rebuilt constraint"() {
+  def "A merged row's declared bound survives the rebuilt constraint"() {
     given: 'a module the child bounds only through a platform, merged into a build that judges the bound'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
@@ -2569,7 +2569,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def "An aggregator's own rule tightens a merged row whose child baked an unstable ceiling"() {
+  def "An aggregator's rule tightens a merged row where the child baked an unstable ceiling"() {
     given: "the child bakes the pre-release ceiling with the built-in check off, and sets no rule of its own"
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
@@ -2637,7 +2637,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
-  def "The report's own pre-release check holds a merged row its child let through"() {
+  def "The report's pre-release check rejects a merged row its child let through"() {
     given: 'a child with the built-in check off, and an outer that sets no rule of its own'
     unstableCeilingComposite()
 
@@ -2654,7 +2654,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
-  def "The report's own preReleaseVersionIf convention holds a merged row"() {
+  def "The report's preReleaseVersionIf convention rejects a merged row"() {
     given: "an outer whose convention neither build's markers cover, and a child that has none"
     unstableCeilingComposite(
       "tool 'com.example:prerelease-flagged:1.0'",
@@ -2679,7 +2679,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
-  def "The report's own exemption keeps a merged pre-release row the check would hold"() {
+  def "The report's exemption keeps a merged pre-release row the check would reject"() {
     given: 'an outer exempting the one module from its built-in checks'
     unstableCeilingComposite(
       "tool 'com.probe:unstable-ceiling:1.0'",
@@ -2729,7 +2729,7 @@ final class CompositeBuildSpec extends Specification {
   }
 
   /**
-   * Writes an outer that aggregates a child whose own pre-release check is off, so the child bakes a
+   * Writes an outer that aggregates a child with its pre-release check off, so the child bakes a
    * ceiling its own build accepts and the outer's report is the only place the check can apply.
    */
   private void unstableCeilingComposite(

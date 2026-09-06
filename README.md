@@ -887,8 +887,8 @@ JVM signature, so keeping both fails the build with a platform declaration
 clash.
 
 In a build that merges an included build's entries, a Kotlin rule that calls a
-function declared in the build script, as the recipe above does, costs that
-report its configuration cache entry (see [Composite
+function declared in the build script, as the recipe above does, leaves the
+report without a configuration cache entry (see [Composite
 builds](#composite-builds)). Move the function into a compiled class there, in
 `buildSrc` or an included build. A Groovy build is unaffected.
 
@@ -1031,13 +1031,13 @@ tasks.named("dependencyUpdates").configure {
 
 </details>
 
-A rule runs a second time as the report is written, so that the report applies
-its own rules to every row it holds and not only to the ones this build
-resolved. `metadata` and `getDescriptor` answer null there: the report keeps the
-candidate versions each build found, not the modules behind them, and the
-repositories another build read are not this one's to query. A rejection a rule
-makes after reading either is therefore ignored at that second pass, leaving the
-row at the version the build that resolved it chose rather than reporting it
+A rule runs a second time as the report is written, so that every row in the
+report is checked against it and not only the rows this build resolved.
+`metadata` and `getDescriptor` answer null there: only the candidate versions
+each build found are recorded, not the modules behind them, and the repositories
+another build read cannot be queried from this one. A rejection a rule makes
+after reading either is ignored at that second pass, and the row stays at the
+version the build that resolved it accepted rather than being reported
 unresolved. A rule that reads only `candidate`, `currentVersion` or
 `versionConstraint` is unaffected.
 
@@ -2014,8 +2014,8 @@ hierarchy whose task set them. Configuring the root project's task therefore
 covers every project, unless a subproject configures its own (see [Task
 properties](#task-properties)).
 
-This inheritance runs within one build. An included build takes none of it; the
-report that merges its entries applies its own settings to them instead (see
+This inheritance runs within one build. None of it reaches an included build;
+the report that merges its entries applies its own settings to them instead (see
 [Composite builds](#composite-builds)).
 
 #### Composite builds
@@ -2058,22 +2058,22 @@ tasks.register("allDependencyUpdates") {
 Every included build needs the plugin applied for its `dependencyUpdates` task
 to exist. A build that must stay unmodified can have the plugin injected by an
 [init script](#initialization-script) instead. Apply one version of the plugin
-across the builds a report spans: a merged report reads what each build wrote,
-and a build writing it in a format newer than the reading build knows fails
-that report by name.
+across the builds a report spans: a merged report is read from what each build
+wrote, and a file written in a format newer than the reading build supports
+fails the report, and the error prints the project it came from.
 
 An included build's report can instead be merged into this build's report, by
 declaring the build in the `dependencyUpdatesAggregation` configuration of the
 project that aggregates. Declare it by the coordinates that the include
 substitutes, and apply the plugin in the included build, so that a report exists
-to merge. Each declaration brings the project its coordinates resolve to and
-every project that one aggregates, where it brought that project alone before. A
-build's root project aggregates its whole build, so the root's coordinates bring
-all of it and a subproject's coordinates bring only what that subproject
-aggregates. It stops at that build's own boundary: a build that the declared
-build includes in turn needs a declaration of its own, which reaches it however
-deeply it is included. A project of this build that the aggregating project's
-own tree does not cover, such as a sibling, is declared the same way:
+to merge. Each declaration merges the project its coordinates resolve to, and
+every project that one aggregates, where only that project was merged before. A
+build's root project aggregates its whole build, so the root's coordinates merge
+all of it, and a subproject's coordinates merge only what that subproject
+aggregates. Merging stops at that build's boundary: a build included by the
+declared build has to be declared in turn, which reaches it however deeply it is
+included. A project of this build that the aggregating project's own tree
+does not cover, such as a sibling, is declared the same way:
 
 <details open>
 <summary>Kotlin</summary>
@@ -2099,54 +2099,53 @@ dependencies {
 
 </details>
 
-The task that writes the report applies its own settings to every entry it
-holds, including the entries an included build resolved and the entries its own
-subprojects resolved. Its `rejectVersionIf` or `resolutionStrategy` rules judge
-those entries, `rejectPreReleases` holds them to its own pre-release
-check, with the convention `preReleaseVersionIf` adds and the exception
-`exemptFromBuiltInChecksIf` makes, and `filterDeclaredConfigurations` leaves
-them out by the names they show. An included build that configures nothing takes
-the aggregating build's rules for the entries it contributes, and one that
-turned its own `rejectPreReleases` off is still held to the check where
-its entries are merged.
+The task that writes the report applies its settings to every entry in it,
+including the entries an included build resolved and the entries its subprojects
+resolved. Its `rejectVersionIf` and `resolutionStrategy` rules are applied to
+those entries, `rejectPreReleases` checks them against the pre-release
+markers, the convention added with `preReleaseVersionIf` and the exception made
+with `exemptFromBuiltInChecksIf`, and `filterDeclaredConfigurations` leaves out
+the ones with a configuration name it rejects. An included build with nothing
+configured is reported under the aggregating build's rules, and an included
+build with `rejectPreReleases` switched off is still checked against it
+where its entries are merged.
 
-That boundary is the build, not the project. Within one build the pre-release
-check reads the convention and the exemption the resolving project inherited,
-so a subproject that sets `preReleaseVersionIf` or `exemptFromBuiltInChecksIf`
-of its own keeps that answer in the report above it. A `rejectVersionIf` or
-`resolutionStrategy` rule is different: it is policy the report holds rather
-than a setting a project inherits, and the aggregating report's rules govern
-every entry, its subprojects' included.
+Within one build the pre-release check and a rule behave differently. The
+pre-release check reads the convention and the exemption inherited by the
+project that resolved the entry, so a subproject with its own
+`preReleaseVersionIf` or `exemptFromBuiltInChecksIf` keeps that answer in the
+report above it. A `rejectVersionIf` or `resolutionStrategy` rule is policy
+applied at the report instead, so the aggregating report's rules reach every
+entry, its subprojects' entries included.
 
-The report only narrows what a build offered. The version an entry shows is the
-newest one the producing build's own resolution accepted, so an aggregating
-build can move an entry to an older version, but not to a newer one. An
-included build with stricter rules caps what the merged report shows for the
-coordinates it declares.
+The report only narrows what a build reported. The version an entry shows is the
+newest one the producing build's resolution accepted, so an aggregating build
+can move an entry to an older version and never to a newer one. An included
+build with stricter rules caps what the merged report shows for the coordinates
+declared in it.
 
-A subproject is not exempt from this. Where the project the report is asked for
+This applies to a subproject as well. Where the project the report is asked for
 rejects a version that a subproject accepts, the older version is shown for
-every project, so two entries that the subprojects' own rules would have split
-apart are shown as one.
+every project, and two entries that a per-project rule would have split apart
+are shown as one.
 
 An entry the report moved to an older version was never resolved at that
-version. The candidates behind it come from a repository listing, so the
-version satisfied both builds' rules, while no resolution proved a usable
-variant of it exists. The version the producing build accepted is the one it
-resolved.
+version. The candidates come from a repository listing, so the version satisfied
+both builds' rules, and no resolution proved that a usable variant of it exists.
+The version accepted in the producing build is the one that build resolved.
 
-The settings that decide what is resolved stay with the build that resolves it:
+The settings that control what is resolved apply in the build that resolves it:
 `filterConfigurations`, `checkConstraints`, `checkBuildEnvironmentConstraints`,
 and `revision`. Declare those in each included build.
 
-A report that judges another build's entries carries its rules into the
-configuration cache. A Kotlin rule that calls a function its own build script
-declares holds the script inside the rule, which the cache cannot store, so the
-report gives up its cache entry and names the project in a warning. Declare the
-rule's helpers as a compiled class, in `buildSrc` or an included build, to keep
-the entry. A helper declared beside the rule in a precompiled script plugin does
-not qualify: that script's own top level functions are members of it, so the
-rule holds that script instead. A Groovy closure is unaffected.
+A report that applies its rules to another build's entries stores those rules in
+the configuration cache. A Kotlin rule that calls a function declared in the
+same build script captures the script itself, which the cache cannot store, so
+the entry is discarded and a warning prints the project. Declare the rule's
+helpers as a compiled class, in `buildSrc` or an included build, to keep the
+entry. A helper declared beside the rule in a precompiled script plugin does not
+qualify: that script's top level functions are members of it, so the rule
+captures that script instead. A Groovy closure is unaffected.
 
 #### Per-project reports
 
@@ -2437,8 +2436,8 @@ the current version is itself a pre-release, the report is held to the bounds
 written in the build without a rule written for it, a coordinate with one
 declared version and different latest versions across the aggregated projects
 is shown on one entry per latest version, where the entries were merged into
-the newest of them before, and an aggregating report applies its own settings
-to the entries it merges from an included build:
+the newest of them before, and an aggregating report applies its settings to
+the entries merged from an included build:
 
 > [!IMPORTANT]
 > - A dependency with no newer release, only a newer pre-release, is now
@@ -2457,22 +2456,22 @@ to the entries it merges from an included build:
 >   `projects` (see [Multi-project builds](#multi-project-builds)), which is
 >   what distinguishes them. A tool that keys the entries by group and name
 >   alone has to key them by the projects as well.
-> - A `dependencyUpdatesAggregation` entry now brings every project of the build
->   it declares, where it brought the one project its coordinates resolved to. A
->   composite that declared every project of an included build can declare the
->   build alone (see [Composite builds](#composite-builds)).
+> - A `dependencyUpdatesAggregation` entry now merges every project of the build
+>   it declares, where only the project its coordinates resolved to was merged
+>   before. A composite that declared every project of an included build can
+>   declare the build alone (see [Composite builds](#composite-builds)).
 > - The aggregating report's `rejectVersionIf`, `resolutionStrategy`,
 >   `rejectPreReleases`, `preReleaseVersionIf`, `exemptFromBuiltInChecksIf`
->   and `filterDeclaredConfigurations` reach every entry it holds, both the ones an
->   included build resolved and the ones its own subprojects resolved. An entry
->   can show an older version, or not appear at all, where the included build's
->   or the subproject's own settings settled it before. Where the project the
->   report is asked for rejects a version a subproject accepts, two entries that
->   a per-project rule would have split apart are shown as one.
-> - A report that merges an included build's entries gives up its configuration
->   cache entry when a Kotlin rule calls a function its own build script
->   declares. Move the function into a compiled class, in `buildSrc` or an
->   included build, to keep the entry. A Groovy build is unaffected.
+>   and `filterDeclaredConfigurations` are applied to every entry in it, both the
+>   ones an included build resolved and the ones its subprojects resolved. An
+>   entry can show an older version, or not appear at all, where the included
+>   build's or the subproject's own settings settled it before. Where the project
+>   the report is asked for rejects a version a subproject accepts, two entries
+>   that a per-project rule would have split apart are shown as one.
+> - The configuration cache entry is discarded for a report that merges an
+>   included build's entries, where a Kotlin rule calls a function declared in
+>   the same build script. Move the function into a compiled class, in `buildSrc`
+>   or an included build, to keep the entry. A Groovy build is unaffected.
 
 > [!TIP]
 > - The `isNonStable` recipe formerly recommended here can be dropped, along with
@@ -2513,9 +2512,9 @@ to the entries it merges from an included build:
 >   of its own, so the line is printed again (see [Report
 >   format](#report-format)).
 > - An entry the report moved to an older version under the aggregating build's
->   own rules offers a version no build resolved. The version a build accepts
->   itself always carries that build's full status-aware verdict; a version
->   below it does not.
+>   rules shows a version no build resolved. The version a build accepts came
+>   through that build's full status-aware verdict, and a version below it did
+>   not.
 
 ### v0.60.0
 

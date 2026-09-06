@@ -94,9 +94,9 @@ class Resolver internal constructor(
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
 
-  // Every candidate a dynamic query's component-selection walk offered, as `group:name:version`,
-  // deduped in offer order. Selections run concurrently, so both the set and each drain of it are
-  // synchronized.
+  // Every candidate a dynamic query's component-selection walk reached, as `group:name:version`,
+  // deduped in the order they arrived. Selections run concurrently, so both the set and each drain
+  // of it are synchronized.
   internal val candidates: MutableSet<String> = Collections.synchronizedSet(LinkedHashSet())
 
   // The platform declarations whose scan threw, so a configuration inheriting the same ones does
@@ -295,24 +295,25 @@ class Resolver internal constructor(
 
   /**
    * Resolves a policy-free copy of the configuration that queries the same dynamic versions as
-   * [createLatestConfiguration] but rejects every candidate a component-selection walk offers, so
+   * [createLatestConfiguration] but rejects every candidate a component-selection walk reaches, so
    * [recordCandidates] observes the complete listing rather than the prefix a first-accept walk
    * reaches. Built from a detached configuration rather than [Configuration.copyRecursive], which
-   * would carry over the source configuration's own `resolutionStrategy`: a build-script `force`,
-   * `eachDependency`, or `componentSelection` rule would then shape the facts before the recording
-   * rule ever sees the rejected candidates. Carries neither the revision filter nor the build's own
-   * `resolutionStrategy`: facts are policy-free by definition, and a metadata-reading user predicate
-   * must never turn this walk into the far more expensive per-candidate-fetch shape those add. The
+   * copies the source configuration's `resolutionStrategy` as well: a build-script `force`,
+   * `eachDependency`, or `componentSelection` rule would then alter the facts before the recording
+   * rule ever sees the rejected candidates. Neither the revision filter nor the build's
+   * `resolutionStrategy` is applied here: facts are policy-free by definition, and a
+   * metadata-reading user predicate must never turn this walk into the far more expensive
+   * per-candidate fetch those add. The
    * resolved result is discarded; a rejected candidate surfaces as an `UnresolvedDependencyResult`
    * inside it, never as a thrown exception, the same tolerance [getStatus] already relies on for the
    * first-accept walk.
    *
-   * Runs beside [createLatestConfiguration] rather than replacing it. The verdict that walk bakes is
-   * itself a recorded fact—the newest candidate this build's own policy accepted and resolved—and
-   * the only carrier of the revision filter, the build's configuration-level selection rules and its
-   * `force`/`eachDependency` effects, none of which the aggregating task can replay over a listing.
-   * It also keeps `projectUrl`, the classification of a genuine resolution failure, and the proof
-   * that a usable variant of the reported version exists.
+   * Runs beside [createLatestConfiguration] rather than replacing it. The verdict that walk bakes
+   * is itself a recorded fact—the newest candidate this build's own policy accepted and resolved—and
+   * the only place the revision filter, the build's configuration-level selection rules and its
+   * `force`/`eachDependency` effects are applied, none of which the aggregating task can replay over
+   * a listing. It is also where `projectUrl`, the classification of a genuine resolution failure,
+   * and the proof that a usable variant of the reported version exists come from.
    */
   private fun recordAllCandidates(
     configuration: Configuration,
@@ -440,7 +441,7 @@ class Resolver internal constructor(
   }
 
   /**
-   * Records every candidate a dynamic query offers and rejects it, so the walk keeps going rather
+   * Records every candidate a dynamic query reaches and rejects it, so the walk keeps going rather
    * than stopping at the first one Gradle would otherwise accept. Reads only the candidate's
    * version, never its metadata: a metadata read costs an extra request per candidate that the
    * facts do not otherwise need.
@@ -1234,7 +1235,7 @@ internal fun configurationsOf(
 /**
  * Warns once, however many rules read the deprecated bound across the resolutions or the report
  * passes it is given to, since a rule is evaluated for every candidate of every configuration and
- * script classpath. Takes the logger rather than the project so that the report can warn too: the
+ * script classpath. Given the logger rather than the project so that the report can warn too: the
  * task that judges runs without a project on a restored configuration cache entry.
  */
 internal fun deprecatedBoundWarning(logger: Logger): () -> Unit {

@@ -41,10 +41,10 @@ private const val VERIFICATION_TYPE = "dependency-updates"
 /** The number of causes joined into a skipped configuration's reason, matching DependencyStatus. */
 private const val MAX_FAILURE_CAUSES = 20
 
-/** The type a compiled Kotlin build script carries, which the configuration cache cannot hold. */
+/** The type of a compiled Kotlin build script, which the configuration cache cannot store. */
 private const val KOTLIN_SCRIPT_TYPE = "org.gradle.kotlin.dsl.KotlinScript"
 
-/** How many captured objects are read before the search below gives up. */
+/** How many captured objects are read before the search below stops. */
 private const val MAX_INSPECTED_CAPTURES = 500
 
 /** The filter applied when a task leaves the configurations unrestricted. */
@@ -54,13 +54,13 @@ internal val ALL_CONFIGURATIONS = Spec<Configuration> { true }
 internal val ALL_DECLARED_CONFIGURATIONS = Spec<String> { true }
 
 /**
- * Returns whether [value] holds a Kotlin build script, which the configuration cache refuses to
- * serialize. A Kotlin script's top level functions and properties are members of the script class,
- * so a lambda that reads one captures the script itself.
+ * Returns whether a Kotlin build script is reachable from [value], which the configuration cache
+ * cannot serialize. A Kotlin script's top level functions and properties are members of the script
+ * class, so a lambda that reads one captures the script itself.
  *
- * A Groovy closure reaches its own script too, through the owner that every closure carries, and is
- * deliberately not reported: Gradle serializes that one by substituting the owner, so reporting it
- * would give up the cache for the builds that keep it today.
+ * A Groovy closure reaches its script too, through its owner, and is deliberately not reported:
+ * Gradle serializes that one by substituting the owner, so reporting it would discard the cache
+ * entry for the builds that keep it today.
  */
 internal fun holdsKotlinScript(value: Any?): Boolean {
   val pending = ArrayDeque(listOfNotNull(value))
@@ -71,8 +71,8 @@ internal fun holdsKotlinScript(value: Any?): Boolean {
     if (!seen.add(captured)) {
       continue
     }
-    // Asked of the object's own loader rather than the plugin's, which a build that uses no Kotlin
-    // script never has the type on.
+    // Looked up in the object's own loader rather than the plugin's, since a build with no Kotlin
+    // script never loads the type there.
     val isScript =
       runCatching {
         captured.javaClass.classLoader?.loadClass(KOTLIN_SCRIPT_TYPE)?.isInstance(captured)
@@ -80,7 +80,7 @@ internal fun holdsKotlinScript(value: Any?): Boolean {
     if (isScript == true) {
       return true
     }
-    // Only the fields the class declares are read, which is where a lambda holds what it captured.
+    // Only the fields the class declares are read, which is where a lambda's captured values sit.
     // Walking the inherited ones as well would reach a Groovy closure's owner.
     for (field in runCatching { captured.javaClass.declaredFields }.getOrDefault(emptyArray())) {
       if (Modifier.isStatic(field.modifiers) || field.type.isPrimitive) {
@@ -177,10 +177,10 @@ internal class DependencyUpdatesParameters {
     }
 
   /**
-   * Whether a row this report holds was resolved under rules other than this task's, which is the
-   * only place judging can change an answer. Turning it on captures the strategy and the filter for
-   * the judge, and they stay captured as either is reconfigured, so they may be set in any order
-   * and any number of times.
+   * Whether a row merged into this report was resolved under rules other than this task's, which
+   * is the only case where judging can change an answer. Turning it on captures the strategy and
+   * the filter for the judge, and both stay captured as either is reconfigured, so they may be set
+   * in any order and any number of times.
    */
   var judgesAnotherPolicy: Boolean = false
     set(value) {
@@ -194,10 +194,10 @@ internal class DependencyUpdatesParameters {
     }
 
   /**
-   * The strategy the report judges by, held where the configuration cache carries it into the task
-   * rather than dropping it with the transient property above. Only a report holding rows that
-   * another project or build resolved by rules of its own sets it, so every other report keeps its
-   * exemption from serializing the action.
+   * The strategy the judge applies, stored where the configuration cache serializes it into the
+   * task rather than dropping it with the transient property above. It is filled only for a report
+   * that merges rows resolved under another project's or build's own rules, so every other report
+   * stays exempt from serializing the action.
    */
   var judgingResolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
     set(value) {
@@ -206,9 +206,10 @@ internal class DependencyUpdatesParameters {
     }
 
   /**
-   * The filter the report leaves entries out by, held where the configuration cache carries it into
-   * the task rather than dropping it with the transient property above. Set on the same terms as
-   * the strategy, so a report that judges nobody keeps its exemption from serializing a predicate.
+   * The filter that leaves entries out of the report, stored where the configuration cache
+   * serializes it into the task rather than dropping it with the transient property above. Filled
+   * on the same terms as the strategy, so a report with no other policy's rows in it stays exempt
+   * from serializing a predicate.
    */
   var judgingFilterDeclaredConfigurations: Spec<String>? = null
     set(value) {
@@ -217,10 +218,10 @@ internal class DependencyUpdatesParameters {
     }
 
   /**
-   * The convention the report's own pre-release check reads, held where the configuration cache
-   * carries it into the task rather than dropping it with the transient property above. Set on the
-   * same terms as the strategy, so a report that judges nobody keeps its exemption from
-   * serializing a predicate.
+   * The convention the report's pre-release check reads, stored where the configuration cache
+   * serializes it into the task rather than dropping it with the transient property above. Filled
+   * on the same terms as the strategy, so a report with no other policy's rows in it stays exempt
+   * from serializing a predicate.
    */
   var judgingPreReleaseVersionIf: Spec<String>? = null
     set(value) {
@@ -228,7 +229,7 @@ internal class DependencyUpdatesParameters {
       onJudgingCapture?.invoke(value)
     }
 
-  /** The exemption the report's own built-in checks read, held on the same terms as the convention. */
+  /** The exemption the report's built-in checks read, stored on the same terms as the convention. */
   var judgingExemptFromBuiltInChecksIf: ComponentFilter? = null
     set(value) {
       field = value
@@ -236,19 +237,19 @@ internal class DependencyUpdatesParameters {
     }
 
   /**
-   * Notified as each of the two judging slots above is assigned, so that the task answers whether
-   * the cache can hold them however late the rule, the filter and the aggregated coordinate are
-   * declared. Transient, as the question is settled while the build is configured and the entry
-   * carries the answer rather than this.
+   * Notified as each of the two judging fields above is assigned, so that the task can report
+   * whether the cache can store them however late the rule, the filter and the aggregated
+   * coordinate are declared. Transient, since the question is settled while the build is configured
+   * and the answer is serialized into the entry rather than this.
    */
   @Transient
   var onJudgingCapture: ((Any?) -> Unit)? = null
 
   /**
-   * Notified as this project declares a judging rule of its own, so that every report above it
-   * captures its own rules for the judge. A rule declared here makes the rows this project resolves
-   * answer to a policy an ancestor's report does not share, which is the case its judge exists for.
-   * Transient, for the reason the notification above is.
+   * Notified where a judging rule is declared on this project, so that every report above it
+   * captures its rules for the judge. A rule declared here resolves this project's rows under a
+   * policy an ancestor's report does not apply, which is the case the judge exists for. Transient,
+   * for the same reason as the notification above.
    */
   @Transient
   var onOwnJudgingRule: (() -> Unit)? = null
@@ -314,7 +315,7 @@ internal abstract class DependencyUpdatesParametersService :
   /** Returns where an earlier release wrote the partial result of each project of the build. */
   fun legacyPartials(): List<RegularFile> = legacy.map { it.get() }
 
-  /** The projects that declared a judging rule of their own, rather than inheriting one. */
+  /** The projects a judging rule is declared on, rather than inherited by. */
   private val ownJudgingRules = ConcurrentHashMap.newKeySet<String>()
 
   /** Publishes the settings of the given project's task to the projects that resolve with them. */
@@ -324,8 +325,9 @@ internal abstract class DependencyUpdatesParametersService :
   ) {
     byPath[path] = parameters
     parameters.onOwnJudgingRule = { noteOwnJudgingRule(path) }
-    // Registered as the task is realized, which is before the build script configures it, so a rule
-    // already declared here came from a plugin or an earlier hook and would otherwise go unseen.
+    // Registered as the task is realized, which is before the build script's configuration of it
+    // runs, so a rule already declared here came from a plugin or an earlier hook and would
+    // otherwise be missed.
     if (parameters.resolutionStrategySet || parameters.filterDeclaredConfigurations != null) {
       noteOwnJudgingRule(path)
     }
@@ -335,11 +337,11 @@ internal abstract class DependencyUpdatesParametersService :
   }
 
   /**
-   * Records that the given project resolves by rules of its own, and tells every report above it
-   * that judging can now change one of its rows. Read in both directions, as a project may declare
-   * its rule before or after an ancestor's task is registered. Each side publishes what it knows
-   * before reading what the other published, so that neither misses the other where isolated
-   * projects configures the two at once.
+   * Records that the given project resolves under its own rules, and marks every report above it
+   * as one where judging can now change a row. Read in both directions, since a rule may be declared
+   * on a project before or after an ancestor's task is registered. Each side writes its own entry
+   * before reading the other's, so that neither is missed where the two are configured at once
+   * under isolated projects.
    */
   private fun noteOwnJudgingRule(path: String) {
     if (!ownJudgingRules.add(path)) {
@@ -352,7 +354,7 @@ internal abstract class DependencyUpdatesParametersService :
     }
   }
 
-  /** Whether the first path names a project beneath the second. */
+  /** Whether the first path is a project beneath the second. */
   private fun isBelow(
     path: String,
     ancestor: String,
@@ -502,13 +504,13 @@ internal fun registerAggregation(
   // module dependency is included rather than the project ones alone, as an included build is
   // declared by its coordinates and substituted onto its project only once the graph resolves.
   //
-  // Under isolated projects the same dependencies are published as this project's own, so that a
-  // consumer reading its statuses walks into the projects it aggregates and takes the whole report
+  // Under isolated projects the same dependencies are published as this project's, so that a
+  // consumer reading its statuses walks into the projects it aggregates and reads the whole report
   // as one entry. Published as the graph edges rather than as the collected files, which a consumer
-  // holds no lock to resolve from its own build and whose lenient view would read as an empty
-  // report. The edges cost what the artifacts below avoid: a project that shares a group and name
-  // with another in the consumer's graph is merged away by conflict resolution, which the report's
-  // own completeness warning names.
+  // cannot resolve from its own build without the lock, and where a lenient view would read as an
+  // empty report. The edges cost what the artifacts below avoid: a project with the same group and
+  // name as another in the consumer's graph is merged away by conflict resolution, which the
+  // report's completeness warning then lists as missing.
   val isolated = isIsolatedProjectsEnabled(project)
   val published =
     if (isolated) {
@@ -535,11 +537,11 @@ internal fun registerAggregation(
       )
     }
     // The task judges the report from the state the configuration cache restored, which drops the
-    // strategy the producers read, so a report that can hold another build's rows keeps a copy that
-    // survives. Marked as each dependency is declared rather than at a moment of this project's
-    // evaluation, so that a coordinate a later hook adds is still seen. Only a coordinate names
-    // another build; a project of this build is marked instead where it declares a rule of its own,
-    // which the service does as the rule is declared.
+    // strategy the producers read, so a copy that survives is kept for a report that can merge
+    // another build's rows. Marked as each dependency is declared rather than at one moment of this
+    // project's evaluation, so that a coordinate added by a later hook is still seen. Only a
+    // coordinate reaches another build; a project of this build is marked instead where a rule is
+    // declared on it, which the service does as that rule is declared.
     if (dependency is ExternalModuleDependency) {
       accumulator.configure { task -> task.parameters.judgesAnotherPolicy = true }
     }
@@ -572,8 +574,8 @@ internal fun registerAggregation(
   // configuration, whose artifacts are the project's own and not a partial result to read the
   // report from.
   //
-  // This project is left out, as what it aggregates is published as its own variant and reading
-  // that back would reach itself through it. Its own result is wired from its producer instead.
+  // This project is left out, since what it aggregates is published as its own variant and reading
+  // that back would reach itself through it. Its result is wired from its producer instead.
   for (aggregated in project.allprojects.filter { it != project }) {
     project.dependencies.add(
       AGGREGATION_CONFIGURATION,
@@ -608,7 +610,7 @@ internal fun registerAggregation(
       }
     }
     // Wired from the producer rather than read back as this project's own variant, which the
-    // aggregation no longer names.
+    // aggregation no longer includes.
     val partial = registerProducer(project, service)
     accumulator.configure { task -> task.partialResults.from(partial.flatMap { it.outputFile }) }
   } else {
@@ -618,10 +620,10 @@ internal fun registerAggregation(
     // build is left behind rather than risk removing one in use, and is never read, as the results
     // are wired by path rather than discovered.
     accumulator.configure { task -> task.partialsDirectory.set(partialsDirectory) }
-    // Published as this project's own artifacts, so that a consumer naming the build by its
+    // Published as this project's own artifacts, so that a consumer that declares the build by its
     // coordinates reads the whole report as one entry. The files are published rather than the
-    // projects as dependencies, so that the consumer gains no graph node for conflict resolution to
-    // merge away, and no configuration of this build has to resolve from the consumer's.
+    // projects as dependencies, so that no graph node is added for conflict resolution to merge
+    // away, and no configuration of this build has to resolve from the consumer's.
     val publishable = project.files()
     publishAggregatedResults(project, publishable)
     // The results are wired as task outputs too, as module conflict resolution would otherwise drop
@@ -872,8 +874,8 @@ private fun publishResults(
 
 /**
  * Publishes the results of the projects that this one aggregates alongside its own, so that a
- * consumer naming its build by the coordinates it is substituted onto reads that build's whole
- * report rather than this project alone.
+ * consumer that declares the build by the coordinates it is substituted onto reads that build's
+ * whole report rather than this project alone.
  *
  * Registered against the variant lazily, as it is created once the project is evaluated while the
  * producers are registered as the plugin is applied.
@@ -926,13 +928,13 @@ private fun statusesOf(
   val statuses =
     configurations.flatMap { configuration ->
       try {
-        // Discounted after resolving, which is what runs the default actions that name the
-        // configurations whose every dependency a plugin contributed.
+        // Discounted after resolving, since resolving is what runs the default actions that fill
+        // a configuration where every dependency came from a plugin.
         resolver.resolve(configuration, parameters.revision, nameDeclaringConfiguration, scriptClasspaths) {
           declaredKeys.getValue(configuration) - keysOf(configuration, filledByPlugin)
         }.filter { status ->
-          // A status with no configuration name, which is what an ordinary declaration
-          // produces, is kept whatever the filter rejects.
+          // A status with no configuration name on it, as an ordinary declaration's is, is
+          // kept whatever the filter rejects.
           status.configurations.isEmpty() ||
             status.configurations.any { parameters.filterDeclaredConfigurations.isSatisfiedBy(it) }
         }.map { it.toPartialStatus() }
@@ -946,8 +948,8 @@ private fun statusesOf(
         emptyList()
       }
     }
-  // Held while draining, as a synchronized set only synchronizes its own methods and copying one
-  // into a set iterates it.
+  // Locked while draining, since a synchronized set synchronizes only its own methods and copying
+  // one into a set iterates it.
   synchronized(resolver.candidates) {
     candidates.addAll(resolver.candidates)
   }

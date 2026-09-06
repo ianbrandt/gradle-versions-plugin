@@ -14,20 +14,20 @@ import org.gradle.api.specs.Spec
 /**
  * Replays the aggregating build's own component-selection rules over each row's recorded
  * candidates, starting at the row's baked verdict (the first-accept walk's answer) and walking
- * older, never newer. The baked verdict is the ceiling: it carries the revision filter,
- * configuration-level selection rules and `force`/`eachDependency` effects that only the producing
- * build could apply, none of which the judge can replay. Every including build's `dependencyUpdates`
- * task judges the rows beneath it by its own rules, so an outer build's `rejectVersionIf` governs a
- * row merged in from an included build, not only the rows it resolved itself.
+ * older, never newer. The baked verdict is the ceiling: the revision filter, the
+ * configuration-level selection rules and the `force`/`eachDependency` effects that only the
+ * producing build applies are already folded into it, and none of them can be replayed here. Every
+ * including build's `dependencyUpdates` task applies its own rules to the rows beneath it, so an
+ * outer build's `rejectVersionIf` is applied to a row merged in from an included build, not only to
+ * the rows resolved there.
  *
- * The report's own [revision] holds every candidate the walk reaches below the ceiling, as
- * [VersionStability] over the version string rather than the status a record has no metadata to
- * carry.
+ * The report's [revision] is applied to every candidate the walk reaches below the ceiling, as
+ * [VersionStability] over the version string, since a record has no metadata for the status.
  *
- * A row moved below its verdict offers a version that satisfied both builds' rules but that no
- * resolution proved usable, unlike the version the producing build accepted and resolved: the
- * candidates are a repository listing, and a version can pass version selection and still fail
- * variant selection.
+ * A row moved below its verdict shows a version that satisfied both builds' rules and that no
+ * resolution proved usable, unlike the version accepted in the producing build, which was resolved
+ * there: the candidates come from a repository listing, and a version can pass version selection
+ * and still fail variant selection.
  */
 internal class Judge(
   resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
@@ -40,7 +40,7 @@ internal class Judge(
   private val collector = CollectingComponentSelectionRules()
   private val currentHolder = mutableMapOf<Coordinate.Key, Coordinate>()
 
-  /** The report's own pre-release check, the built-in markers plus the convention set in its build. */
+  /** The report's pre-release check, the built-in markers plus the convention added in its build. */
   private val isPreRelease: (String) -> Boolean = VersionStability.withConvention(preReleaseVersionIf)
 
   /** Whether a candidate is exempt from the report's built-in checks; nothing is unless configured. */
@@ -52,9 +52,9 @@ internal class Judge(
     }
 
   /**
-   * Whether the report has rules of its own to apply. The action is executed once here rather than
-   * once per pass, so a rule with a side effect of its own has it as often as the build that
-   * resolved with it would.
+   * Whether any rule is configured on this report. The action is executed once here rather than
+   * once per pass, so a rule with a side effect runs it as often as it would in the build that
+   * resolved with it.
    */
   private val hasRules: Boolean =
     if (resolutionStrategy == null) {
@@ -70,30 +70,31 @@ internal class Judge(
         // same throw, caught it there and recorded a skipped configuration (see Aggregation.kt), so
         // failing the whole task on top of that already-reported skip would help nobody. Reported
         // rather than swallowed: a strategy that throws only here, such as a serialized closure
-        // reading a build script, would otherwise leave every row unjudged with nothing said.
+        // reading a build script, would otherwise leave every row unjudged with nothing printed.
         reportUnapplied(e)
         false
       }
     }
 
   /**
-   * Warns that the report holds what its producers reported, naming the throw by its first line
-   * alone, as the skipped configurations the same throw produces are, so a multi-line cause does
-   * not spill the detail that the report holds back.
+   * Warns that every row is left as its producer reported it, printing the first line of the throw
+   * alone, as a skipped configuration from the same throw is, so a multi-line cause is not printed
+   * in full.
    */
   private fun reportUnapplied(e: Exception) {
     logger.warn(
-      "The report kept each dependency as the build that resolved it reported it: applying " +
-        "its own component selection rules failed with " +
+      "Every dependency is left as the build that resolved it reported it: applying this " +
+        "report's component selection rules failed with " +
         e.message.orEmpty().lineSequence().first(),
     )
   }
 
   /**
    * Returns [statuses] with each resolved row's `latestVersion` capped to the newest candidate the
-   * aggregating build's own rules accept, reading the candidates from the partial the row's own
-   * `projectPath` names. A row absent from its partial's candidates (a `none`-version row, a file
-   * dependency, an offline run, or a v1/v2 partial from an older release) keeps its baked verdict.
+   * aggregating build's rules accept, reading the candidates from the partial for the row's
+   * `projectPath`. A row absent from its partial's candidates (a `none`-version row, a file
+   * dependency, an offline run, or a v1/v2 partial from an older release) is left at its baked
+   * verdict.
    */
   fun judge(
     statuses: List<PartialStatus>,
@@ -105,9 +106,9 @@ internal class Judge(
     return try {
       statuses.map { status -> judgeRow(status, candidatesByProjectPath) }
     } catch (e: Exception) {
-      // A rule body throws where registering it did not: a closure the configuration cache carried
-      // without the build script it reads reaches the missing method only once a candidate is
-      // offered to it. Every row falls back rather than the one that threw, so what is reported is
+      // A rule body throws where registering it did not: a closure serialized into the
+      // configuration cache without the build script it reads hits the missing method only once a
+      // candidate reaches it. Every row falls back rather than the one that threw, so the report is
       // one build's answer throughout rather than a mix of judged and unjudged rows.
       reportUnapplied(e)
       statuses
@@ -123,10 +124,10 @@ internal class Judge(
     }
     val candidates = status.projectPath?.let { candidatesByProjectPath[it] }.orEmpty()
     val prefix = "${status.group}:${status.name}:"
-    // Sorted rather than taken as recorded: a candidate is recorded as the repository it came from
-    // offers it, so a module found in more than one repository is recorded newest-first per
+    // Sorted rather than read as recorded: a candidate is recorded in the order its repository
+    // lists it, so a module found in more than one repository is recorded newest-first per
     // repository rather than newest-first overall, and the verdict can trail candidates older than
-    // itself. The walk below reads position as age, so it has to be given an order that says so.
+    // itself. The walk below reads position as age, so the order has to match.
     val moduleCandidates =
       candidates
         .filter { it.startsWith(prefix) }
@@ -150,32 +151,32 @@ internal class Judge(
     currentHolder[rowKey] = current
     val rules = collector.rulesFor(status.group, status.name)
 
-    // Named for the ceiling candidate alone (the first iterated below): `selectorVersion` in the
-    // synthesized UnresolvedInfo is always the ceiling, so the reason reported must answer why
-    // that named version was rejected, not why some older candidate further down the walk was.
+    // Kept for the ceiling candidate alone (the first iterated below): `selectorVersion` in the
+    // synthesized UnresolvedInfo is always the ceiling, so the reason reported has to be why that
+    // version was rejected rather than why some older candidate further down the walk was.
     var ceilingReason: String? = null
     for (index in ceilingIndex until moduleCandidates.size) {
       val version = moduleCandidates[index].substring(prefix.length)
       val shim = RecordedComponentSelection(status.group, status.name, version)
-      // Applied at the ceiling as well as below it, and ahead of the rules, as the producer applies
-      // it ahead of a build's own rules. The version a producer baked was accepted under that
-      // build's own check, which an included build may have turned off or given a different
-      // convention, so the report holds every row it merges to its own.
+      // Applied at the ceiling as well as below it, and ahead of the rules, as the producer
+      // applies it ahead of a build's own rules. The version a producer baked was accepted under
+      // that build's check, which an included build may have switched off or extended with a
+      // convention, so every merged row is checked again here.
       if (rejectsPreRelease(current, shim)) {
         if (index == ceilingIndex) {
           ceilingReason = PRE_RELEASE_REASON
         }
         continue
       }
-      // An exemption that decided on the metadata the record does not carry judged the record
-      // rather than the candidate, so the row is left as the build that resolved it reported it,
-      // as it is for a rule that rejects the same way.
+      // An exemption that decided on the metadata absent from the record judged the record rather
+      // than the candidate, so the row is left as the build that resolved it reported it, as it is
+      // for a rule that rejects the same way.
       if (shim.unjudged) {
         return status
       }
-      // Below the ceiling the report's own revision is all there is to hold a candidate to, as the
-      // record carries no status. A guard rejection is never an unjudged one: only the version
-      // string is read, which every record carries.
+      // Below the ceiling the report's revision is all a candidate can be checked against, since
+      // no status is recorded. A guard rejection is never an unjudged one: only the version string
+      // is read, and every record has one.
       if (index > ceilingIndex && !accepted(status, version)) {
         continue
       }
@@ -183,10 +184,10 @@ internal class Judge(
         if (shim.rejected || shim.unjudged) break
         shim.applyRule(rule)
       }
-      // A rule that rejected on the metadata the record does not carry judged the record rather
-      // than the candidate, and nothing distinguishes the candidates below it from that same
-      // answer, so the row is left as the build that resolved it reported it. Continuing the walk
-      // would offer a version this build's own rules had already rejected above.
+      // A rule that rejected on the metadata absent from the record judged the record rather than
+      // the candidate, and nothing distinguishes the candidates below it from that same answer, so
+      // the row is left as the build that resolved it reported it. Continuing the walk would report
+      // a version this build's rules had already rejected above.
       if (shim.unjudged) {
         return status
       }
@@ -200,7 +201,7 @@ internal class Judge(
     return unresolvedRow(status, ceilingReason)
   }
 
-  /** Returns [status] as a row no version satisfied, named for why its verdict was rejected. */
+  /** Returns [status] as a row no version satisfied, reporting why its verdict was rejected. */
   private fun unresolvedRow(
     status: PartialStatus,
     ceilingReason: String?,
@@ -220,7 +221,7 @@ internal class Judge(
     )
 
   /**
-   * Returns whether the report's own `rejectPreReleases` leaves this candidate out, read
+   * Returns whether the report's `rejectPreReleases` leaves this candidate out, read
    * through the same wrapper a rule reads it through so that `isPreRelease` and an
    * `exemptFromBuiltInChecksIf` predicate answer here as they do at a producer.
    */
@@ -244,17 +245,17 @@ internal class Judge(
     if (!selection.isPreRelease()) {
       return false
     }
-    // Read through the record rather than called, so an exemption that decides on the metadata the
-    // record does not carry marks the candidate unjudged instead of answering. The caller leaves
-    // such a row alone; withholding it here on an answer the predicate could not give would drop an
+    // Read through the record rather than called, so an exemption that reads the metadata absent
+    // from the record marks the candidate unjudged instead of answering. The caller leaves such a
+    // row alone; leaving it out here on an answer the predicate could not give would drop an
     // upgrade the producer reported.
     val exempt = shim.evaluate { isExempt(selection) }
     return !shim.unjudged && !exempt
   }
 
   /**
-   * Returns whether the report's own revision accepts [version] for [status], exempting the version
-   * the build already declares so that a row is never held back from the release it is already on.
+   * Returns whether the report's revision accepts [version] for [status], exempting the version
+   * already declared in the build so that a row is never held back from the release it is on.
    * https://github.com/ben-manes/gradle-versions-plugin/issues/475
    */
   private fun accepted(
@@ -267,7 +268,7 @@ internal class Judge(
     DefaultImmutableVersionConstraint(preferred, required, strict, rejected, "")
 
   private companion object {
-    /** The reason a producer gives for the same rejection, so a row reads alike either way. */
+    /** The reason a producer prints for the same rejection, so a row reads alike either way. */
     const val PRE_RELEASE_REASON = "Pre-release rejected by rejectPreReleases"
   }
 }

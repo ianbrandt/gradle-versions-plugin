@@ -293,7 +293,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
     [store, hit].every { it.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]') }
   }
 
-  def 'Keeps a preReleaseVersionIf naming the version in use across the cache'() {
+  def 'Keeps a preReleaseVersionIf that matches the version in use across the cache'() {
     given: 'the convention covers the version in use, which is what keeps the upgrade in the report'
     new File(testProjectDir.root, 'app/build.gradle') <<
       """
@@ -472,8 +472,8 @@ final class AggregationConfigurationCacheSpec extends Specification {
 
     then:
     store.task(':app:partialDependencyUpdates').outcome == SUCCESS
-    // The facts carry every listed version, including the one the build's own rejectVersionIf
-    // rejects, while the verdict the report shows is still the first-accept walk's own choice.
+    // Every listed version is recorded as a fact, including the one the build's own rejectVersionIf
+    // rejects, while the verdict the report shows is still the first-accept walk's choice.
     stored as Set == ['com.google.inject:guice:3.1', 'com.google.inject:guice:3.0',
                        'com.google.inject:guice:2.2', 'com.google.inject:guice:2.1',
                        'com.google.inject:guice:2.0', 'com.google.inject:guice:1.0'] as Set
@@ -524,7 +524,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
         }
       ''')
     // The same module reachable from both the project's own configuration and its buildscript
-    // classpath, so a candidate it offers is a target for each of the two statusesOf passes.
+    // classpath, so each of its candidates is a target for both statusesOf passes.
     new File(testProjectDir.root, 'app/build.gradle') <<
       """
         buildscript {

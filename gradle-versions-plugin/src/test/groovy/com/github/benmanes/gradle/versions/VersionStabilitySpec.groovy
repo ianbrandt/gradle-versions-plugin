@@ -209,7 +209,7 @@ final class VersionStabilitySpec extends Specification {
   }
 
   // 'release' and 'milestone' now behave identically (accept anything but a snapshot), so this
-  // table also carries the version strings that used to need a dedicated 'release accepts' table
+  // table also covers the version strings that used to need a dedicated 'release accepts' table
   // for the stable-pattern predicate now removed: a Beta/rc/M1/RC1 pre-release string, and the
   // jre/android/Ivy-r/v-prefix/Final/RELEASE strings that predicate special-cased.
   @Unroll

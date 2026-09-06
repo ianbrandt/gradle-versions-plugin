@@ -46,9 +46,9 @@ data class PartialStatus
      * the whole report rather than about the project whose producer wrote this status.
      */
     @Transient val splitByLatest: Boolean = false,
-    /** The constraint the declaration stated, null when no declaration named this module. */
+    /** The constraint declared for this module, null when no declaration covers it. */
     val constraint: ConstraintInfo? = null,
-    /** The constraints the platforms this module's consumer depends on state for it. */
+    /** The constraints declared for this module by the platforms its consumer depends on. */
     val platformConstraints: List<ConstraintInfo> = emptyList(),
   ) {
     val coordinate: Coordinate
@@ -181,7 +181,7 @@ data class PartialResult
     val statuses: List<PartialStatus>,
     val buildscriptStatuses: List<PartialStatus>,
     val skipped: List<SkippedInfo> = emptyList(),
-    /** Every candidate version a dynamic query offered, as `group:name:version`. */
+    /** Every candidate version a dynamic query reached, as `group:name:version`. */
     val candidates: List<String> = emptyList(),
   ) {
     fun toJson(): String = adapter.toJson(this)
@@ -200,8 +200,8 @@ data class PartialResult
     companion object {
       /**
        * Bumped when the shape changes incompatibly; a field with a compatible default reads from an
-       * older partial as that default. 2 records every candidate a dynamic query offers rather than
-       * only the accepted one, plus the declared and platform-supplied constraints.
+       * older partial as that default. 2 records every candidate a dynamic query reaches rather
+       * than only the accepted one, plus the declared and platform-supplied constraints.
        */
       const val FORMAT_VERSION: Int = 2
 

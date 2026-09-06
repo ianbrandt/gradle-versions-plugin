@@ -166,9 +166,9 @@ class PlainTextReporter
           val version = dependency.version
           val versionSuffix = if (version.isNullOrEmpty() || version == "none") "" else ":$version"
           printStream.println(" - ${label(dependency)}$versionSuffix")
-          // The resolver's own account of the failure, which names causes the coordinate cannot
-          // show. A build with no repositories reports every coordinate it declares here, and
-          // until this line said so the report gave no hint of why. Reported as the first line
+          // The resolver's account of the failure, which covers causes the coordinate alone
+          // cannot show. A build with no repositories declared reports every coordinate here, and
+          // until this line was printed the report showed no reason why. Printed as the first line
           // alone, as a skipped configuration's reason is, since the rest is a stack trace.
           dependency.reason.lineSequence().first().takeIf { it.isNotBlank() }?.let {
             printStream.println("     $it")

@@ -11,7 +11,7 @@ import spock.lang.Issue
 import spock.lang.Specification
 
 /**
- * A specification for the candidates a dynamic query offers, recorded by a policy-free walk that
+ * A specification for the candidates a dynamic query reaches, recorded by a policy-free walk that
  * rejects every one rather than the first-accept walk the report itself resolves against.
  * https://github.com/ben-manes/gradle-versions-plugin/issues/948
  */
@@ -25,7 +25,7 @@ final class ResolverCandidatesSpec extends Specification {
   }
 
   /**
-   * Writes a module whose maven-metadata.xml lists every version in {@code allVersions}, newest
+   * Writes a module with a maven-metadata.xml listing every version in {@code allVersions}, newest
    * first, but only publishes a pom for {@code declaredVersion}. A listed version with no pom
    * proves the walk never fetches metadata: fetching one for a candidate absent from disk would
    * fail or drop it rather than recording it.
@@ -89,7 +89,7 @@ final class ResolverCandidatesSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
-  def 'Preserves the order Gradle offers candidates rather than a lexical sort'() {
+  def 'Preserves the order Gradle presents candidates in rather than a lexical sort'() {
     given:
     // Lexically, '2.0.9' sorts after '2.0.10'; Gradle's own comparator orders them the other way.
     publishModule('com.example', 'widget', '2.0.9', ['2.0.10', '2.0.9'])
@@ -120,7 +120,7 @@ final class ResolverCandidatesSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
-  def 'Attributes each candidate to its own module when two share an artifact id across groups'() {
+  def 'Attributes each candidate to its module when two use one artifact id across groups'() {
     given:
     publishModule('com.a', 'lib', '1.0', ['1.0'])
     publishModule('com.b', 'lib', '9.0', ['9.0'])
@@ -143,8 +143,8 @@ final class ResolverCandidatesSpec extends Specification {
     given:
     publishModule('com.example', 'someplugin', '1.0', ['2.0', '1.0'])
     def app = ProjectBuilder.builder().withName('root').build()
-    // Only the buildscript declares the repository holding the module, so a walk resolving against
-    // the project's own repositories records nothing at all.
+    // The repository with the module in it is declared only in the buildscript, so a walk resolving
+    // against the project's own repositories records nothing at all.
     app.repositories {
       maven { url repoDir.newFolder('empty').toURI() }
     }

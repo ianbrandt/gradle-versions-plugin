@@ -400,7 +400,7 @@ final class DivergentVersionsSpec extends Specification {
     !hit.output.contains('declared in')
   }
 
-  def 'Reports every row when a rule the cache could not carry throws at the judge'() {
+  def 'Reports every row when a rule the cache could not store throws at the judge'() {
     given: 'a root rule calling a method its own script declares, which the entry cannot carry'
     writeSplitBuild([':': 'false', 'app': 'false', 'lib': 'false'])
     new File(testProjectDir.root, 'build.gradle') <<
@@ -420,12 +420,12 @@ final class DivergentVersionsSpec extends Specification {
 
     then: 'the rule is reported as unapplied rather than failing the task'
     store.task(':dependencyUpdates').outcome == SUCCESS
-    store.output.contains('The report kept each dependency as the build that resolved it reported it')
+    store.output.contains('Every dependency is left as the build that resolved it reported it')
     store.output.contains('com.google.inject:guice')
 
     and:
     hit.task(':dependencyUpdates').outcome == SUCCESS
-    hit.output.contains('The report kept each dependency as the build that resolved it reported it')
+    hit.output.contains('Every dependency is left as the build that resolved it reported it')
     hit.output.contains('com.google.inject:guice')
   }
 

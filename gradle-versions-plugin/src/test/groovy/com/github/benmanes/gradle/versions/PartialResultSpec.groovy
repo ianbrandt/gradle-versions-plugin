@@ -230,7 +230,7 @@ final class PartialResultSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/948')
-  def 'Rejects a format version this reader does not know yet'() {
+  def 'Rejects a format version newer than this reader supports'() {
     given:
     def json = new PartialResult(PartialResult.FORMAT_VERSION + 1, ':', [], []).toJson()
 
@@ -241,7 +241,7 @@ final class PartialResultSpec extends Specification {
     thrown(IllegalArgumentException)
   }
 
-  def 'Names the project whose partial the reader is too old for, and the version skew behind it'() {
+  def 'Reports the project with the unreadable partial, and the version skew behind it'() {
     given: 'a producer running a newer release than the report that reads its partial'
     def json = new PartialResult(PartialResult.FORMAT_VERSION + 1, ':child:sub', [], []).toJson()
 

@@ -202,7 +202,7 @@ final class IsolatedProjectsAggregationSpec extends Specification {
     then: 'the exemption survives into the task the cache restores, so both runs report the same'
     store.task(':dependencyUpdates').outcome == SUCCESS
     hit.output.contains('Reusing configuration cache')
-    // Without the exemption the judge withholds the pre-release and the row reads as up to date,
+    // Without the exemption the judge rejects the pre-release and the row reads as up to date,
     // which is what a report that lost it across the cache prints.
     store.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]')
     hit.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]')

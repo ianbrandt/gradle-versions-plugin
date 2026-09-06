@@ -15,7 +15,7 @@ import org.gradle.model.internal.type.ModelType
  * `resolutionStrategy` action runs exactly once and every registered rule is replayable afterwards.
  *
  * Only the [Action]-typed overloads ever run in practice: [ComponentSelectionRulesWithCurrent]'s
- * own `Closure` and rule-source overloads already reduce to a call on the `Action` overload before
+ * `Closure` and rule-source overloads already reduce to a call on the `Action` overload before
  * reaching a [ComponentSelectionRules] delegate, so the other four overloads here exist to satisfy
  * the interface and would answer correctly if ever called directly.
  */
@@ -45,7 +45,7 @@ internal class CollectingComponentSelectionRules : ComponentSelectionRules {
     ruleSource: Any,
   ): ComponentSelectionRules = register(id, ruleSourceAction(ruleSource))
 
-  /** Returns the registered rules whose module id, if any, names this module, in registration order. */
+  /** Returns the registered rules for this module, and those with no module id, in registration order. */
   fun rulesFor(
     group: String,
     name: String,

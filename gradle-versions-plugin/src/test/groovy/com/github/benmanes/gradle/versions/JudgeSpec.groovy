@@ -59,7 +59,7 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def 'A predicate reading metadata or the descriptor gets null at the judge'() {
+  def 'A predicate reading metadata or the descriptor is answered null at the judge'() {
     given:
     def selection = new RecordedComponentSelection('com.example', 'widget', '2.0')
 
@@ -129,7 +129,7 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def 'The reason reported names the ceiling candidate, not a lower one the walk also rejected'() {
+  def 'The reason reported is for the ceiling candidate rather than a lower one also rejected'() {
     given: 'a rule that rejects three candidates, each with its own reason'
     def status = statusOf('com.example', 'widget', '1.0', '3.0')
     def candidates =
@@ -202,7 +202,7 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def 'Offers no candidate below one the rule rejected on the absent metadata'() {
+  def 'Shows no candidate below one the rule rejected on the absent metadata'() {
     given: 'a rule rejecting the verdict by version, and everything under it by its null metadata'
     def status = statusOf('com.example', 'widget', '1.0', '3.0')
     def candidates =
@@ -310,7 +310,7 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def 'Offers no integration candidate below the ceiling under a milestone revision'() {
+  def 'Shows no integration candidate below the ceiling under a milestone revision'() {
     given: 'a listing whose snapshot sits between the rejected ceiling and the release below it'
     def status = statusOf('com.example', 'widget', '1.0', '3.0')
     def candidates = [
@@ -325,7 +325,7 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/798')
-  def 'Offers no snapshot candidate below the ceiling under a release revision'() {
+  def 'Shows no snapshot candidate below the ceiling under a release revision'() {
     given: 'a snapshot and a jre qualified release below the ceiling the rule rejected'
     def status = statusOf('com.example', 'widget', '1.0', '3.0')
     def candidates = [
@@ -383,7 +383,7 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def "Names the report's own rule when it rejected every candidate starting at the ceiling"() {
+  def "Reports the rule that rejected every candidate starting at the ceiling"() {
     given: 'a listing of snapshots only, all rejected by a rule of the report\'s own'
     def status = statusOf('com.example', 'widget', '1.0', '2.0-SNAPSHOT')
     def candidates = [':': ['com.example:widget:2.0-SNAPSHOT', 'com.example:widget:1.5-SNAPSHOT']]
@@ -437,7 +437,7 @@ final class JudgeSpec extends Specification {
     judged[0].unresolved == null
   }
 
-  def "The report's own pre-release check holds the ceiling its producer accepted"() {
+  def "The report's pre-release check rejects the ceiling its producer accepted"() {
     given: 'a row whose producer baked a pre-release, the report checking pre-releases itself'
     def statuses = [statusOf('com.probe', 'unstable-ceiling', '1.0', '3.0-Beta1')]
     def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0',
@@ -467,7 +467,7 @@ final class JudgeSpec extends Specification {
     judged[0].unresolved == null
   }
 
-  def "An exemption keeps a candidate the report's own check would hold"() {
+  def "An exemption keeps a candidate the report's check would reject"() {
     given: 'the same pre-release ceiling, with the module exempted from the built-in checks'
     def statuses = [statusOf('com.probe', 'unstable-ceiling', '1.0', '3.0-Beta1')]
     def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0']]
@@ -480,7 +480,7 @@ final class JudgeSpec extends Specification {
     judged[0].latestVersion == '3.0-Beta1'
   }
 
-  def 'An exemption deciding on the absent metadata leaves the row as its producer reported it'() {
+  def 'An exemption answering on the absent metadata leaves the row as its producer reported it'() {
     given: 'an exemption that reads the metadata a recorded candidate never carries'
     def statuses = [statusOf('com.probe', 'unstable-ceiling', '1.0', '3.0-Beta1')]
     def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0',

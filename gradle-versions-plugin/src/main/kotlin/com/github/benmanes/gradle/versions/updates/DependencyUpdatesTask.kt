@@ -329,9 +329,9 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
       // is made rather than when the task executes.
       if (value != null) {
         // Written directly rather than through resolutionStrategy(Action), which clears this
-        // property and would leave it reading back as unset. Configured by delegating a copy of the
-        // closure rather than by project.configure, whose Task.project read the configuration cache
-        // forbids at execution, which is where the judge applies this.
+        // property and would leave it reading back as unset. Applied by delegating a copy of the
+        // closure rather than by project.configure, since that reads Task.project, which the
+        // configuration cache forbids at execution, and execution is where the judge applies this.
         parameters.resolutionStrategy =
           Action<ResolutionStrategyWithCurrent> { current ->
             @Suppress("UNCHECKED_CAST")
@@ -390,7 +390,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   val projectDirectory: DirectoryProperty =
     project.objects.directoryProperty().convention(project.layout.projectDirectory)
 
-  /** Whether the cache has already been told that it cannot hold this report's judging rules. */
+  /** Whether this report's judging rules have already been reported as unstorable in the cache. */
   private var judgeWithheldFromCache = false
 
   init {
@@ -401,12 +401,12 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   }
 
   /**
-   * Gives up the configuration cache entry for a report whose judging rules hold their own build
-   * script, which the cache refuses to serialize. Discarding the entry keeps the report correct and
-   * the build running, where storing it would fail outright and isolated projects offers no way to
-   * turn the cache off.
+   * Discards the configuration cache entry where a report's judging rules reach their own build
+   * script, which the cache cannot serialize. Discarding the entry keeps the report correct and the
+   * build running, where storing it would fail outright and there is no way to turn the cache off
+   * under isolated projects.
    *
-   * Only a Kotlin script is withheld for: a Groovy closure carries its script as well and is
+   * Only a Kotlin script is withheld for: a Groovy closure reaches its script as well, and is
    * serialized by substituting the owner, so those reports keep their entry.
    * https://github.com/ben-manes/gradle-versions-plugin/issues/1058
    */
@@ -416,14 +416,14 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     }
     judgeWithheldFromCache = true
     notCompatibleWithConfigurationCache(
-      "The rules that judge another build's dependency updates hold this build's script.",
+      "A rule applied to another build's dependency updates reads this build's script.",
     )
     logger.warn(
-      "The dependency updates report of $projectPath gave up its configuration cache entry: a " +
-        "rejectVersionIf, resolutionStrategy or filterDeclaredConfigurations rule reads something " +
-        "its own build script declares, which the cache cannot store for a report that judges " +
-        "another build's dependencies. Declare the rule's helpers as a compiled class, in buildSrc " +
-        "or an included build, to keep the entry.",
+      "The configuration cache entry for the dependency updates report of $projectPath was " +
+        "discarded: a rejectVersionIf, resolutionStrategy or filterDeclaredConfigurations rule " +
+        "reads a declaration from the build script, which the cache cannot store where the report " +
+        "applies its rules to another build's dependencies. Declare the rule's helpers as a " +
+        "compiled class, in buildSrc or an included build, to keep the entry.",
     )
   }
 
@@ -472,14 +472,14 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     }
     val candidatesByProjectPath = partials.associate { it.projectPath to it.candidates }
     // The configuration cache restores the task without the strategy the producers read, so the
-    // slot that survives it answers where the live property is gone.
+    // copy that survives it is read where the live property is gone.
     val strategy: Action<in ResolutionStrategyWithCurrent>? =
       parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
-    // The built-in check is applied here only where this report holds a row some other policy
+    // The built-in check is applied here only where this report merges a row some other policy
     // resolved, which is the same condition that captures the convention and the exemption for the
-    // judge. Everywhere else the producers already applied the identical check, with the settings
-    // they inherited, so re-applying it would add nothing and would read the two predicates from
-    // properties a restored cache entry no longer carries.
+    // judge. Everywhere else the producers already applied the identical check, under the settings
+    // they inherited, so applying it again would add nothing and would read the two predicates from
+    // properties that are gone from a restored cache entry.
     val judgesAnotherPolicy = parameters.judgesAnotherPolicy
     val judge =
       Judge(
@@ -490,9 +490,9 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
         parameters.preReleaseVersionIf ?: parameters.judgingPreReleaseVersionIf,
         parameters.exemptFromBuiltInChecksIf ?: parameters.judgingExemptFromBuiltInChecksIf,
       )
-    // Read from the slot that survives the cache rather than the live property, which is gone by
-    // here on a restored entry. Only a report that merges in another build's rows fills it, so a
-    // build that aggregates nobody keeps the answer its own producers already filtered.
+    // Read from the copy that survives the cache rather than the live property, which is gone by
+    // here on a restored entry. The copy is filled only for a report that merges in another build's
+    // rows, so a build that aggregates nobody is left with what its producers already filtered.
     val declaredFilter = parameters.judgingFilterDeclaredConfigurations
     val projectRows =
       partials
@@ -645,9 +645,9 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
 }
 
 /**
- * Whether the report keeps [status] under its own declared-configuration filter, matching the rule
- * the producer applies: an entry that names no configuration, as an ordinary declaration's does, is
- * kept whatever the filter rejects. A null filter is a report with nothing of its own to say.
+ * Whether [status] survives the report's declared-configuration filter, matching the rule the
+ * producer applies: an entry with no configuration on it, as an ordinary declaration's is, is kept
+ * whatever the filter rejects. A null filter means nothing is configured on this report.
  */
 private fun Spec<String>?.keeps(status: PartialStatus): Boolean =
   this == null ||
