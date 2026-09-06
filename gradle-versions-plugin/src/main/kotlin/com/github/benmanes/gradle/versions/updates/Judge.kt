@@ -29,7 +29,7 @@ import org.gradle.api.logging.Logger
  */
 internal class Judge(
   resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
-  logger: Logger,
+  private val logger: Logger,
   private val revision: String,
   private val checkVersionStability: Boolean,
 ) {
@@ -56,16 +56,23 @@ internal class Judge(
         // failing the whole task on top of that already-reported skip would help nobody. Reported
         // rather than swallowed: a strategy that throws only here, such as a serialized closure
         // reading a build script, would otherwise leave every row unjudged with nothing said.
-        // Named by its first line alone, as the skipped configurations the same throw produces are,
-        // so a multi-line cause does not spill the detail that the report holds back.
-        logger.warn(
-          "The report kept each dependency as the build that resolved it reported it: applying " +
-            "its own component selection rules failed with " +
-            e.message.orEmpty().lineSequence().first(),
-        )
+        reportUnapplied(e)
         false
       }
     }
+
+  /**
+   * Warns that the report holds what its producers reported, naming the throw by its first line
+   * alone, as the skipped configurations the same throw produces are, so a multi-line cause does
+   * not spill the detail that the report holds back.
+   */
+  private fun reportUnapplied(e: Exception) {
+    logger.warn(
+      "The report kept each dependency as the build that resolved it reported it: applying " +
+        "its own component selection rules failed with " +
+        e.message.orEmpty().lineSequence().first(),
+    )
+  }
 
   /** Whether the report has anything of its own to say about a row, rules or the revision guard. */
   private val applicable: Boolean = checkVersionStability || hasRules
@@ -83,7 +90,16 @@ internal class Judge(
     if (!applicable) {
       return statuses
     }
-    return statuses.map { status -> judgeRow(status, candidatesByProjectPath) }
+    return try {
+      statuses.map { status -> judgeRow(status, candidatesByProjectPath) }
+    } catch (e: Exception) {
+      // A rule body throws where registering it did not: a closure the configuration cache carried
+      // without the build script it reads reaches the missing method only once a candidate is
+      // offered to it. Every row falls back rather than the one that threw, so what is reported is
+      // one build's answer throughout rather than a mix of judged and unjudged rows.
+      reportUnapplied(e)
+      statuses
+    }
   }
 
   private fun judgeRow(

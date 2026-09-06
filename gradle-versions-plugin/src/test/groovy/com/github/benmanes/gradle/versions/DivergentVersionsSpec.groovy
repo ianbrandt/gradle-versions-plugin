@@ -400,6 +400,56 @@ final class DivergentVersionsSpec extends Specification {
     !hit.output.contains('declared in')
   }
 
+  def 'Reports every row when a rule the cache could not carry throws at the judge'() {
+    given: 'a root rule calling a method its own script declares, which the entry cannot carry'
+    writeSplitBuild([':': 'false', 'app': 'false', 'lib': 'false'])
+    new File(testProjectDir.root, 'build.gradle') <<
+      """
+        boolean isRejected(String version) {
+          return version == '3.1'
+        }
+
+        dependencyUpdates {
+          rejectVersionIf { isRejected(it.candidate.version) }
+        }
+      """.stripIndent()
+
+    when:
+    def store = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+    def hit = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+
+    then: 'the rule is reported as unapplied rather than failing the task'
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    store.output.contains('The report kept each dependency as the build that resolved it reported it')
+    store.output.contains('com.google.inject:guice')
+
+    and:
+    hit.task(':dependencyUpdates').outcome == SUCCESS
+    hit.output.contains('The report kept each dependency as the build that resolved it reported it')
+    hit.output.contains('com.google.inject:guice')
+  }
+
+  def 'Reports every row when a rule reading a script object reaches the judge under Gradle #gradleVersion'() {
+    given: 'the rule shape an aggregating report is documented to support, plus a subproject rule'
+    writeSplitBuild(
+      [':': "project.path == ':' && it.candidate.version == '3.1'", 'app': 'false', 'lib': 'false'])
+
+    when:
+    def store = GradleRunner.create()
+      .withGradleVersion(gradleVersion)
+      .withProjectDir(testProjectDir.root)
+      .withArguments([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+      .withPluginClasspath()
+      .build()
+
+    then: 'the task completes and reports the rows, rather than failing over what the entry dropped'
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    store.output.contains('com.google.inject:guice')
+
+    where:
+    gradleVersion << ['8.4', GradleVersions.CURRENT]
+  }
+
   def 'Keeps every row of a three way split in one section'() {
     given:
     writeSplitBuild([
