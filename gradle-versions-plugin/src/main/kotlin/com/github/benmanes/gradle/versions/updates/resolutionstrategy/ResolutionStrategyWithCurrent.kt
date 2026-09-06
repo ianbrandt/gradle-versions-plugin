@@ -29,6 +29,13 @@ class ResolutionStrategyWithCurrent private constructor(
     onDeprecatedBoundRead: () -> Unit,
   ) : this(delegate, delegate.componentSelection, currentCoordinates, onDeprecatedBoundRead)
 
+  internal constructor(
+    delegate: ResolutionStrategy,
+    currentCoordinates: Map<Coordinate.Key, Coordinate>,
+    onDeprecatedBoundRead: () -> Unit,
+    isPreRelease: (String) -> Boolean,
+  ) : this(delegate, delegate.componentSelection, currentCoordinates, onDeprecatedBoundRead, isPreRelease)
+
   /**
    * Harvests the rules a build's `resolutionStrategy` action registers rather than running them
    * against a live resolution, so the judge can replay them over recorded candidates at the report.
