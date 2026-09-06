@@ -475,7 +475,18 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     // slot that survives it answers where the live property is gone.
     val strategy: Action<in ResolutionStrategyWithCurrent>? =
       parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
-    val judge = Judge(strategy, logger, revision)
+    // The two predicates come from the slots that survive the cache for the reason the strategy
+    // does; the property is read live, as the cache carries the settings the task was configured
+    // with.
+    val judge =
+      Judge(
+        strategy,
+        logger,
+        revision,
+        rejectPreReleases,
+        parameters.preReleaseVersionIf ?: parameters.judgingPreReleaseVersionIf,
+        parameters.exemptFromBuiltInChecksIf ?: parameters.judgingExemptFromBuiltInChecksIf,
+      )
     // Read from the slot that survives the cache rather than the live property, which is gone by
     // here on a restored entry. Only a report that merges in another build's rows fills it, so a
     // build that aggregates nobody keeps the answer its own producers already filtered.

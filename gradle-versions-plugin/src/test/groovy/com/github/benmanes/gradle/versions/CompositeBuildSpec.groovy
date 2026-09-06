@@ -2636,6 +2636,159 @@ final class CompositeBuildSpec extends Specification {
     json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '2.0'
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's own pre-release check holds a merged row its child let through"() {
+    given: 'a child with the built-in check off, and an outer that sets no rule of its own'
+    unstableCeilingComposite()
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates', '-DoutputFormatter=plain,json')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the child keeps the pre-release it resolved, and the report it is merged into does not"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.task(':child:dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '3.0-Beta1'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '2.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's own preReleaseVersionIf convention holds a merged row"() {
+    given: "an outer whose convention neither build's markers cover, and a child that has none"
+    unstableCeilingComposite(
+      "tool 'com.example:prerelease-flagged:1.0'",
+      '',
+      """
+        tasks.named('dependencyUpdates').configure {
+          preReleaseVersionIf { it.endsWith('-flagged') }
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates', '-DoutputFormatter=plain,json')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the convention reaches the row the child resolved without it, so the row is up to date"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.milestone == '3.0-flagged'
+    json.outdated.dependencies.every { it.name != 'prerelease-flagged' }
+    json.current.dependencies.find { it.name == 'prerelease-flagged' }?.version == '1.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's own exemption keeps a merged pre-release row the check would hold"() {
+    given: 'an outer exempting the one module from its built-in checks'
+    unstableCeilingComposite(
+      "tool 'com.probe:unstable-ceiling:1.0'",
+      'rejectPreReleases = false',
+      """
+        tasks.named('dependencyUpdates').configure {
+          exemptFromBuiltInChecksIf { candidate.module == 'unstable-ceiling' }
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+
+    then: 'the exemption is read at the judge, so the merged row keeps the ceiling the child baked'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '3.0-Beta1'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's own convention and exemption reach a merged row on the cache hit"() {
+    given: 'an outer that adds a convention and exempts one module, over a child that sets neither'
+    unstableCeilingComposite(
+      """
+        tool 'com.probe:unstable-ceiling:1.0'
+        tool 'com.example:prerelease-flagged:1.0'
+      """.stripIndent(),
+      'rejectPreReleases = false',
+      """
+        tasks.named('dependencyUpdates').configure {
+          preReleaseVersionIf { it.endsWith('-flagged') }
+          exemptFromBuiltInChecksIf { candidate.module == 'unstable-ceiling' }
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache')
+    def hit = run('dependencyUpdates', '--configuration-cache')
+
+    then: 'both are read from the slots that survive the cache, so the hit reports what the store did'
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    hit.output.contains('Configuration cache entry reused.')
+    [store, hit].every { it.output.contains('com.probe:unstable-ceiling [1.0 -> 3.0-Beta1]') }
+    [store, hit].every { !it.output.contains('com.example:prerelease-flagged [1.0 ->') }
+  }
+
+  /**
+   * Writes an outer that aggregates a child whose own pre-release check is off, so the child bakes a
+   * ceiling its own build accepts and the outer's report is the only place the check can apply.
+   */
+  private void unstableCeilingComposite(
+      String childDependency = "tool 'com.probe:unstable-ceiling:1.0'",
+      String childConfig = 'rejectPreReleases = false',
+      String outerConfig = '') {
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+        }
+        $outerConfig
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          $childDependency
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+          $childConfig
+        }
+      """.stripIndent()
+  }
+
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A merged row never overrules the outer's own verdict for a coordinate it declares too"() {
     given: 'both builds declare guava, and only the outer rejects the 16.0 line'

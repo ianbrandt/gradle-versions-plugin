@@ -160,9 +160,21 @@ internal class DependencyUpdatesParameters {
 
   @Transient
   var preReleaseVersionIf: Spec<String>? = null
+    set(value) {
+      field = value
+      if (judgesAnotherPolicy) {
+        judgingPreReleaseVersionIf = value
+      }
+    }
 
   @Transient
   var exemptFromBuiltInChecksIf: ComponentFilter? = null
+    set(value) {
+      field = value
+      if (judgesAnotherPolicy) {
+        judgingExemptFromBuiltInChecksIf = value
+      }
+    }
 
   /**
    * Whether a row this report holds was resolved under rules other than this task's, which is the
@@ -176,6 +188,8 @@ internal class DependencyUpdatesParameters {
       if (value) {
         judgingResolutionStrategy = resolutionStrategy
         judgingFilterDeclaredConfigurations = filterDeclaredConfigurations
+        judgingPreReleaseVersionIf = preReleaseVersionIf
+        judgingExemptFromBuiltInChecksIf = exemptFromBuiltInChecksIf
       }
     }
 
@@ -197,6 +211,25 @@ internal class DependencyUpdatesParameters {
    * the strategy, so a report that judges nobody keeps its exemption from serializing a predicate.
    */
   var judgingFilterDeclaredConfigurations: Spec<String>? = null
+    set(value) {
+      field = value
+      onJudgingCapture?.invoke(value)
+    }
+
+  /**
+   * The convention the report's own pre-release check reads, held where the configuration cache
+   * carries it into the task rather than dropping it with the transient property above. Set on the
+   * same terms as the strategy, so a report that judges nobody keeps its exemption from
+   * serializing a predicate.
+   */
+  var judgingPreReleaseVersionIf: Spec<String>? = null
+    set(value) {
+      field = value
+      onJudgingCapture?.invoke(value)
+    }
+
+  /** The exemption the report's own built-in checks read, held on the same terms as the convention. */
+  var judgingExemptFromBuiltInChecksIf: ComponentFilter? = null
     set(value) {
       field = value
       onJudgingCapture?.invoke(value)

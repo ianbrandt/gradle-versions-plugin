@@ -1,12 +1,15 @@
 package com.github.benmanes.gradle.versions.updates
 
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.CollectingComponentSelectionRules
+import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentFilter
+import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentSelectionWithCurrent
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.RecordedComponentSelection
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ResolutionStrategyWithCurrent
 import org.gradle.api.Action
 import org.gradle.api.artifacts.VersionConstraint
 import org.gradle.api.internal.artifacts.dependencies.DefaultImmutableVersionConstraint
 import org.gradle.api.logging.Logger
+import org.gradle.api.specs.Spec
 
 /**
  * Replays the aggregating build's own component-selection rules over each row's recorded
@@ -30,9 +33,23 @@ internal class Judge(
   resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
   private val logger: Logger,
   private val revision: String,
+  private val rejectPreReleases: Boolean,
+  preReleaseVersionIf: Spec<String>?,
+  exemptFromBuiltInChecksIf: ComponentFilter?,
 ) {
   private val collector = CollectingComponentSelectionRules()
   private val currentHolder = mutableMapOf<Coordinate.Key, Coordinate>()
+
+  /** The report's own pre-release check, the built-in markers plus the convention set in its build. */
+  private val isPreRelease: (String) -> Boolean = VersionStability.withConvention(preReleaseVersionIf)
+
+  /** Whether a candidate is exempt from the report's built-in checks; nothing is unless configured. */
+  private val isExempt: (ComponentSelectionWithCurrent) -> Boolean =
+    if (exemptFromBuiltInChecksIf == null) {
+      { false }
+    } else {
+      { current -> exemptFromBuiltInChecksIf.reject(current) }
+    }
 
   /**
    * Whether the report has rules of its own to apply. The action is executed once here rather than
@@ -82,7 +99,7 @@ internal class Judge(
     statuses: List<PartialStatus>,
     candidatesByProjectPath: Map<String, List<String>>,
   ): List<PartialStatus> {
-    if (!hasRules) {
+    if (!hasRules && !rejectPreReleases) {
       return statuses
     }
     return try {
@@ -120,13 +137,17 @@ internal class Judge(
     }
 
     val rowKey = Coordinate.Key(status.group, status.name)
-    currentHolder.clear()
-    currentHolder[rowKey] =
+    val current =
       Coordinate(
-        status.group, status.name, status.declaredVersion, status.userReason,
+        status.group,
+        status.name,
+        status.declaredVersion,
+        status.userReason,
         status.constraint?.toVersionConstraint(),
         status.platformConstraints.map { it.toVersionConstraint() },
       )
+    currentHolder.clear()
+    currentHolder[rowKey] = current
     val rules = collector.rulesFor(status.group, status.name)
 
     // Named for the ceiling candidate alone (the first iterated below): `selectorVersion` in the
@@ -135,13 +156,23 @@ internal class Judge(
     var ceilingReason: String? = null
     for (index in ceilingIndex until moduleCandidates.size) {
       val version = moduleCandidates[index].substring(prefix.length)
+      val shim = RecordedComponentSelection(status.group, status.name, version)
+      // Applied at the ceiling as well as below it, and ahead of the rules, as the producer applies
+      // it ahead of a build's own rules. The version a producer baked was accepted under that
+      // build's own check, which an included build may have turned off or given a different
+      // convention, so the report holds every row it merges to its own.
+      if (rejectsPreRelease(current, shim)) {
+        if (index == ceilingIndex) {
+          ceilingReason = PRE_RELEASE_REASON
+        }
+        continue
+      }
       // Below the ceiling the report's own revision is all there is to hold a candidate to, as the
       // record carries no status. A guard rejection is never an unjudged one: only the version
       // string is read, which every record carries.
       if (index > ceilingIndex && !accepted(status, version)) {
         continue
       }
-      val shim = RecordedComponentSelection(status.group, status.name, version)
       for (rule in rules) {
         if (shim.rejected || shim.unjudged) break
         shim.applyRule(rule)
@@ -183,6 +214,31 @@ internal class Judge(
     )
 
   /**
+   * Returns whether the report's own `rejectPreReleases` leaves this candidate out, read
+   * through the same wrapper a rule reads it through so that `isPreRelease` and an
+   * `exemptFromBuiltInChecksIf` predicate answer here as they do at a producer.
+   */
+  private fun rejectsPreRelease(
+    current: Coordinate,
+    shim: RecordedComponentSelection,
+  ): Boolean {
+    if (!rejectPreReleases) {
+      return false
+    }
+    val selection =
+      ComponentSelectionWithCurrent(
+        shim,
+        current.version,
+        current.versionConstraint,
+        current.platformVersionConstraints,
+        current.onScriptClasspath,
+        {},
+        isPreRelease,
+      )
+    return selection.isPreRelease() && !isExempt(selection)
+  }
+
+  /**
    * Returns whether the report's own revision accepts [version] for [status], exempting the version
    * the build already declares so that a row is never held back from the release it is already on.
    * https://github.com/ben-manes/gradle-versions-plugin/issues/475
@@ -195,4 +251,9 @@ internal class Judge(
   /** Rebuilds the constraint the four serialized strings captured; `branch` is not serialized. */
   private fun ConstraintInfo.toVersionConstraint(): VersionConstraint =
     DefaultImmutableVersionConstraint(preferred, required, strict, rejected, "")
+
+  private companion object {
+    /** The reason a producer gives for the same rejection, so a row reads alike either way. */
+    const val PRE_RELEASE_REASON = "Pre-release rejected by rejectPreReleases"
+  }
 }

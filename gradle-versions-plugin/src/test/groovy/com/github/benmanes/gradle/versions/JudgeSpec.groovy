@@ -2,10 +2,12 @@ package com.github.benmanes.gradle.versions
 
 import com.github.benmanes.gradle.versions.updates.Judge
 import com.github.benmanes.gradle.versions.updates.PartialStatus
+import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentFilter
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.RecordedComponentSelection
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ResolutionStrategyWithCurrent
 import org.gradle.api.Action
 import org.gradle.api.logging.Logging
+import org.gradle.api.specs.Spec
 import spock.lang.Issue
 import spock.lang.Specification
 
@@ -20,8 +22,10 @@ final class JudgeSpec extends Specification {
 
   private static List<PartialStatus> judge(
     List<PartialStatus> statuses, Map<String, List<String>> candidates, Action strategy,
-    String revision = 'milestone') {
-    return new Judge(strategy, LOGGER, revision).judge(statuses, candidates)
+    String revision = 'milestone', boolean rejectPreReleases = false,
+    Spec<String> preReleaseVersionIf = null, ComponentFilter exemptFromBuiltInChecksIf = null) {
+    return new Judge(strategy, LOGGER, revision, rejectPreReleases, preReleaseVersionIf,
+      exemptFromBuiltInChecksIf).judge(statuses, candidates)
   }
 
   private static PartialStatus statusOf(
@@ -431,5 +435,60 @@ final class JudgeSpec extends Specification {
     then: 'the walk steps to the newest candidate below the verdict, not to the end of the list'
     judged[0].latestVersion == '2.0'
     judged[0].unresolved == null
+  }
+
+  def "The report's own pre-release check holds the ceiling its producer accepted"() {
+    given: 'a row whose producer baked a pre-release, the report checking pre-releases itself'
+    def statuses = [statusOf('com.probe', 'unstable-ceiling', '1.0', '3.0-Beta1')]
+    def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0',
+                            'com.probe:unstable-ceiling:1.0']]
+
+    when:
+    def judged = judge(statuses, candidates, null, 'milestone', true)
+
+    then: 'the walk steps down to the newest candidate the check accepts'
+    judged[0].latestVersion == '2.0'
+    judged[0].unresolved == null
+  }
+
+  def "The report's own convention is part of the check the judge applies"() {
+    given: 'versions no built-in marker covers, and a convention that names them'
+    def statuses = [statusOf('com.example', 'prerelease-flagged', '1.0', '3.0-flagged')]
+    def candidates = [':': ['com.example:prerelease-flagged:3.0-flagged',
+                            'com.example:prerelease-flagged:2.0-flagged',
+                            'com.example:prerelease-flagged:1.0']]
+
+    when:
+    def judged = judge(statuses, candidates, null, 'milestone', true,
+      { String version -> version.endsWith('-flagged') } as Spec<String>)
+
+    then: 'both flagged candidates are held, leaving the version the build already declares'
+    judged[0].latestVersion == '1.0'
+    judged[0].unresolved == null
+  }
+
+  def "An exemption keeps a candidate the report's own check would hold"() {
+    given: 'the same pre-release ceiling, with the module exempted from the built-in checks'
+    def statuses = [statusOf('com.probe', 'unstable-ceiling', '1.0', '3.0-Beta1')]
+    def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0']]
+
+    when:
+    def judged = judge(statuses, candidates, null, 'milestone', true, null,
+      { current -> current.candidate.module == 'unstable-ceiling' } as ComponentFilter)
+
+    then: 'the ceiling stands, as it does for a build that exempts the module at its producer'
+    judged[0].latestVersion == '3.0-Beta1'
+  }
+
+  def 'A build already on a pre-release is still offered a newer one'() {
+    given: 'the declared version is itself a pre-release'
+    def statuses = [statusOf('com.probe', 'unstable-ceiling', '3.0-Beta1', '3.0-Beta1')]
+    def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0']]
+
+    when:
+    def judged = judge(statuses, candidates, null, 'milestone', true)
+
+    then: 'the check reads both versions, so nothing is held back'
+    judged[0].latestVersion == '3.0-Beta1'
   }
 }
