@@ -450,6 +450,39 @@ final class DivergentVersionsSpec extends Specification {
     gradleVersion << ['8.4', GradleVersions.CURRENT]
   }
 
+  def 'Collapses the split for an assigned resolutionStrategy under the configuration cache'() {
+    given: 'the assignment form of the strategy at the root, and a subproject rule beneath it'
+    writeSplitBuild([':': 'false', 'app': 'false', 'lib': 'false'])
+    new File(testProjectDir.root, 'build.gradle') <<
+      """
+        dependencyUpdates {
+          resolutionStrategy = {
+            componentSelection {
+              all { selection ->
+                if (selection.candidate.version == '3.1') {
+                  selection.reject('rejected by the test')
+                }
+              }
+            }
+          }
+        }
+      """.stripIndent()
+
+    when:
+    def store = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+    def hit = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
+
+    then: 'the root caps the rows of both subprojects, as it does without the cache'
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    store.output.contains(' - com.google.inject:guice [2.0 -> 3.0]')
+    store.output.count('com.google.inject:guice') == 1
+
+    and:
+    hit.task(':dependencyUpdates').outcome == SUCCESS
+    hit.output.contains(' - com.google.inject:guice [2.0 -> 3.0]')
+    hit.output.count('com.google.inject:guice') == 1
+  }
+
   def 'Keeps every row of a three way split in one section'() {
     given:
     writeSplitBuild([

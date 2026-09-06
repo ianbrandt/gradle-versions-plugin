@@ -337,9 +337,17 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
       // is made rather than when the task executes.
       if (value != null) {
         // Written directly rather than through resolutionStrategy(Action), which clears this
-        // property and would leave it reading back as unset.
+        // property and would leave it reading back as unset. Configured by delegating a copy of the
+        // closure rather than by project.configure, whose Task.project read the configuration cache
+        // forbids at execution, which is where the judge applies this.
         parameters.resolutionStrategy =
-          Action<ResolutionStrategyWithCurrent> { current -> project.configure(current, value) }
+          Action<ResolutionStrategyWithCurrent> { current ->
+            @Suppress("UNCHECKED_CAST")
+            val configure = value.clone() as Closure<Any>
+            configure.resolveStrategy = Closure.DELEGATE_FIRST
+            configure.delegate = current
+            configure.call(current)
+          }
         parameters.resolutionStrategySet = true
         logger.warn(
           "dependencyUpdates.resolutionStrategy: " +
