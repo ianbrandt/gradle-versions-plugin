@@ -475,15 +475,18 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     // slot that survives it answers where the live property is gone.
     val strategy: Action<in ResolutionStrategyWithCurrent>? =
       parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
-    // The two predicates come from the slots that survive the cache for the reason the strategy
-    // does; the property is read live, as the cache carries the settings the task was configured
-    // with.
+    // The built-in check is applied here only where this report holds a row some other policy
+    // resolved, which is the same condition that captures the convention and the exemption for the
+    // judge. Everywhere else the producers already applied the identical check, with the settings
+    // they inherited, so re-applying it would add nothing and would read the two predicates from
+    // properties a restored cache entry no longer carries.
+    val judgesAnotherPolicy = parameters.judgesAnotherPolicy
     val judge =
       Judge(
         strategy,
         logger,
         revision,
-        rejectPreReleases,
+        judgesAnotherPolicy && rejectPreReleases,
         parameters.preReleaseVersionIf ?: parameters.judgingPreReleaseVersionIf,
         parameters.exemptFromBuiltInChecksIf ?: parameters.judgingExemptFromBuiltInChecksIf,
       )

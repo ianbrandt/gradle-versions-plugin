@@ -274,6 +274,44 @@ final class AggregationConfigurationCacheSpec extends Specification {
     hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
   }
 
+  def 'Keeps an exemption from the built-in checks across the cache'() {
+    given: 'a module whose only upgrade is a pre-release, exempted from the check that leaves it out'
+    new File(testProjectDir.root, 'app/build.gradle') <<
+      """
+        dependencies {
+          implementation 'com.example:prerelease-widget:1.0'
+        }
+      """.stripIndent()
+    configure("exemptFromBuiltInChecksIf { candidate.module == 'prerelease-widget' }")
+
+    when:
+    def store = run(ARGUMENTS)
+    def hit = run(ARGUMENTS)
+
+    then: 'the judge reads the exemption on both runs, as the producer that baked the row did'
+    hit.output.contains('Reusing configuration cache')
+    [store, hit].every { it.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]') }
+  }
+
+  def 'Keeps a preReleaseVersionIf naming the version in use across the cache'() {
+    given: 'the convention covers the version in use, which is what keeps the upgrade in the report'
+    new File(testProjectDir.root, 'app/build.gradle') <<
+      """
+        dependencies {
+          implementation 'com.example:prerelease-widget:1.0'
+        }
+      """.stripIndent()
+    configure("preReleaseVersionIf { it == '1.0' }")
+
+    when:
+    def store = run(ARGUMENTS)
+    def hit = run(ARGUMENTS)
+
+    then: 'a build already on a pre-release is shown the next one, whatever the cache holds'
+    hit.output.contains('Reusing configuration cache')
+    [store, hit].every { it.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]') }
+  }
+
   def 'Warns about assigning the resolutionStrategy only while storing the cache'() {
     given:
     configure(

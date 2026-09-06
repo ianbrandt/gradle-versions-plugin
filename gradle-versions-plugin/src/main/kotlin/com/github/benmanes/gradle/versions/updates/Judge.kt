@@ -167,6 +167,12 @@ internal class Judge(
         }
         continue
       }
+      // An exemption that decided on the metadata the record does not carry judged the record
+      // rather than the candidate, so the row is left as the build that resolved it reported it,
+      // as it is for a rule that rejects the same way.
+      if (shim.unjudged) {
+        return status
+      }
       // Below the ceiling the report's own revision is all there is to hold a candidate to, as the
       // record carries no status. A guard rejection is never an unjudged one: only the version
       // string is read, which every record carries.
@@ -235,7 +241,15 @@ internal class Judge(
         {},
         isPreRelease,
       )
-    return selection.isPreRelease() && !isExempt(selection)
+    if (!selection.isPreRelease()) {
+      return false
+    }
+    // Read through the record rather than called, so an exemption that decides on the metadata the
+    // record does not carry marks the candidate unjudged instead of answering. The caller leaves
+    // such a row alone; withholding it here on an answer the predicate could not give would drop an
+    // upgrade the producer reported.
+    val exempt = shim.evaluate { isExempt(selection) }
+    return !shim.unjudged && !exempt
   }
 
   /**

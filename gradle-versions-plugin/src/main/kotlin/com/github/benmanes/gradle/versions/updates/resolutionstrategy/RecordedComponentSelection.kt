@@ -82,6 +82,22 @@ internal class RecordedComponentSelection(
     }
   }
 
+  /**
+   * Returns whether [predicate] holds for this candidate, marking the candidate [unjudged] and
+   * answering false where the predicate read the metadata or descriptor the record does not carry.
+   * The built-in checks read an exemption through this rather than calling it, so a predicate that
+   * decides on absent metadata leaves the row as its producer reported it, as a rule does.
+   */
+  fun evaluate(predicate: (ComponentSelection) -> Boolean): Boolean {
+    readAbsentMetadata = false
+    val held = predicate(this)
+    if (readAbsentMetadata) {
+      unjudged = true
+      return false
+    }
+    return held
+  }
+
   override fun getCandidate(): ModuleComponentIdentifier = identifier
 
   override fun getMetadata(): ComponentMetadata? {

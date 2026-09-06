@@ -480,6 +480,21 @@ final class JudgeSpec extends Specification {
     judged[0].latestVersion == '3.0-Beta1'
   }
 
+  def 'An exemption deciding on the absent metadata leaves the row as its producer reported it'() {
+    given: 'an exemption that reads the metadata a recorded candidate never carries'
+    def statuses = [statusOf('com.probe', 'unstable-ceiling', '1.0', '3.0-Beta1')]
+    def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0',
+                            'com.probe:unstable-ceiling:1.0']]
+
+    when:
+    def judged = judge(statuses, candidates, null, 'milestone', true, null,
+      { current -> current.metadata != null } as ComponentFilter)
+
+    then: 'the predicate judged the record rather than the candidate, so the ceiling stands'
+    judged[0].latestVersion == '3.0-Beta1'
+    judged[0].unresolved == null
+  }
+
   def 'A build already on a pre-release is still offered a newer one'() {
     given: 'the declared version is itself a pre-release'
     def statuses = [statusOf('com.probe', 'unstable-ceiling', '3.0-Beta1', '3.0-Beta1')]

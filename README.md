@@ -2110,6 +2110,14 @@ the aggregating build's rules for the entries it contributes, and one that
 turned its own `rejectPreReleases` off is still held to the check where
 its entries are merged.
 
+That boundary is the build, not the project. Within one build the pre-release
+check reads the convention and the exemption the resolving project inherited,
+so a subproject that sets `preReleaseVersionIf` or `exemptFromBuiltInChecksIf`
+of its own keeps that answer in the report above it. A `rejectVersionIf` or
+`resolutionStrategy` rule is different: it is policy the report holds rather
+than a setting a project inherits, and the aggregating report's rules govern
+every entry, its subprojects' included.
+
 The report only narrows what a build offered. The version an entry shows is the
 newest one the producing build's own resolution accepted, so an aggregating
 build can move an entry to an older version, but not to a newer one. An
