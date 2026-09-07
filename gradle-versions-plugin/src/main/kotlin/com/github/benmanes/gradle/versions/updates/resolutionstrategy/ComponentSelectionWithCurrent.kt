@@ -58,13 +58,13 @@ class ComponentSelectionWithCurrent internal constructor(
    * the consumer depends on set for it, and the version currently selected is always within
    * bound.
    */
-  internal val withinDeclaredBound: Boolean
+  internal val withinDeclaredBounds: Boolean
     get() =
       DeclaredBound.accepts(versionConstraint, candidate.version, currentVersion, onScriptClasspath) &&
         DeclaredBound.acceptsPlatformSupplied(platformVersionConstraints, currentVersion, candidate.version)
 
   /**
-   * Whether the candidate lies within the declared bound, as [withinDeclaredBound] reads it.
+   * Whether the candidate lies within the declared bound, as [withinDeclaredBounds] reads it.
    *
    * Deprecated: the task's `rejectOutOfBounds` property leaves a candidate outside the declared
    * bound out of the report on its own, so nothing is left for a rule to reject.
@@ -73,20 +73,20 @@ class ComponentSelectionWithCurrent internal constructor(
   val satisfiesDeclaredBound: Boolean
     get() {
       onDeprecatedBoundRead()
-      return withinDeclaredBound
+      return withinDeclaredBounds
     }
 
   /**
    * Whether the candidate is an upgrade that lies outside the declared bound, which is what the
    * task's `rejectOutOfBounds` property leaves out of the report.
    *
-   * The condition is narrower than [withinDeclaredBound], which is evaluated for the candidate
+   * The condition is narrower than [withinDeclaredBounds], which is evaluated for the candidate
    * alone. A candidate no newer than the version in use is not an upgrade at all, and rejecting it
    * would take the exceeded entry off the report while leaving nothing out. Each bound is applied
    * only where the version in use lies within it: a platform that a transitive requirement pushed
    * the version past bounds nothing, while a second platform pinning the version in use still does.
    */
-  internal val isUpgradeOutOfDeclaredBound: Boolean
+  internal val isUpgradeOutOfDeclaredBounds: Boolean
     get() =
       DeclaredBound.isUpgradeOutOfBound(
         versionConstraint,
@@ -118,10 +118,10 @@ class ComponentSelectionWithCurrent internal constructor(
    * task's `rejectOutOfBounds` property leaves out of the report.
    *
    * A function rather than a property, so that one spelling serves both DSLs. A `val` reads without
-   * parentheses in Kotlin, and in Groovy as `outOfDeclaredBound` or as `isOutOfDeclaredBound()`, so
+   * parentheses in Kotlin, and in Groovy as `outOfDeclaredBounds` or as `isOutOfDeclaredBounds()`, so
    * no single spelling would.
    */
-  fun isOutOfDeclaredBound(): Boolean = isUpgradeOutOfDeclaredBound
+  fun isOutOfDeclaredBounds(): Boolean = isUpgradeOutOfDeclaredBounds
 
   override fun toString(): String {
     return """\

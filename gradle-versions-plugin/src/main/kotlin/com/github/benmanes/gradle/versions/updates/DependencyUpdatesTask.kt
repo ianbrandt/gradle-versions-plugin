@@ -482,7 +482,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   /**
    * Exempts the candidates the [filter] matches from the built-in checks, `rejectPreReleases` and
    * `rejectOutOfBounds`, so that the checks stay on for the rest of the build. A candidate is
-   * exempt from both; a filter that reads `!isOutOfDeclaredBound()` or `!isPreRelease()` keeps that
+   * exempt from both; a filter that reads `!isOutOfDeclaredBounds()` or `!isPreRelease()` keeps that
    * check. The checks are applied with the exemption inside them, so their properties and command
    * line options apply as they do without it. A [rejectVersionIf] rule is applied whatever the
    * filter matches. Called more than once on a task, the filters accumulate; a subproject that

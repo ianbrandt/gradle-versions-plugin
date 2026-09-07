@@ -410,7 +410,7 @@ class Resolver internal constructor(
 
   /**
    * Adds the filter that leaves out the upgrades outside the bound declared for a module, which
-   * [ComponentSelectionWithCurrent.isUpgradeOutOfDeclaredBound] identifies, except for a candidate
+   * [ComponentSelectionWithCurrent.isUpgradeOutOfDeclaredBounds] identifies, except for a candidate
    * exempted with `exemptFromBuiltInChecksIf`.
    *
    * Registered first, ahead of the revision filter and the rules configured in the build, since a
@@ -430,7 +430,7 @@ class Resolver internal constructor(
       ResolutionStrategyWithCurrent(inner, currentCoordinates, {}, isPreRelease).componentSelection { rules ->
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
-            if (current.isOutOfDeclaredBound() && !isExempt(current)) {
+            if (current.isOutOfDeclaredBounds() && !isExempt(current)) {
               current.reject("Rejected by rejectOutOfBounds")
             }
           },

@@ -519,7 +519,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
         ''',
       '''
           preReleaseVersionIf { it.endsWith('-flagged') }
-          exemptFromBuiltInChecksIf { !isOutOfDeclaredBound() }
+          exemptFromBuiltInChecksIf { !isOutOfDeclaredBounds() }
         ''')
 
     when:

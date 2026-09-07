@@ -835,10 +835,10 @@ build on them without restating them. `isPreRelease()` is the pre-release check
 above for the candidate: true when the candidate is a pre-release, any
 convention added with `preReleaseVersionIf` included, and the current version
 is not. `isPreRelease(version)` is the version-level test behind it, for a rule
-that reads some other version. `isOutOfDeclaredBound()` is the bound check (see
+that reads some other version. `isOutOfDeclaredBounds()` is the bound check (see
 [Respecting declared bounds](#respecting-declared-bounds)) for the candidate.
 A candidate is exempt from both checks, and a negated member keeps one:
-`exemptFromBuiltInChecksIf { candidate.module == "guava" && !isOutOfDeclaredBound() }`
+`exemptFromBuiltInChecksIf { candidate.module == "guava" && !isOutOfDeclaredBounds() }`
 lets guava's pre-releases through and still holds it to its bound. A rule is
 applied on every run, so the options do not reach what a rule rejects.
 
@@ -1088,7 +1088,7 @@ declaration was matched to, such as one a substitution rule resolved to, so
 guard for that. A module exempted with `exemptFromBuiltInChecksIf` is not
 held to its bound (see [Filtering unstable
 versions](#filtering-unstable-versions)), and the verdict the property applies
-is readable as `isOutOfDeclaredBound()`, for a rule of the build's own.
+is readable as `isOutOfDeclaredBounds()`, for a rule of the build's own.
 `satisfiesDeclaredBound`, the verdict
 a rule applied before the property did, is deprecated and will be removed in a
 later release.

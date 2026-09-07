@@ -238,7 +238,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
     !result.output.contains('satisfiesDeclaredBound is deprecated')
   }
 
-  def 'a Groovy rule reading isOutOfDeclaredBound leaves out what the property would'() {
+  def 'a Groovy rule reading isOutOfDeclaredBounds leaves out what the property would'() {
     given: 'the property is off, so the rule is the only thing that can reject'
     writeBuildFile(
       """
@@ -253,7 +253,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
       """
         rejectOutOfBounds = false
         rejectVersionIf {
-          isOutOfDeclaredBound()
+          isOutOfDeclaredBounds()
         }
       """)
 
@@ -269,7 +269,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
     !result.output.contains('satisfiesDeclaredBound is deprecated')
   }
 
-  def 'a rule reading isOutOfDeclaredBound is applied under the command line option too'() {
+  def 'a rule reading isOutOfDeclaredBounds is applied under the command line option too'() {
     given: 'the property is off, so the rule is the only thing that can reject'
     writeBuildFile(
       """
@@ -283,7 +283,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
       """
         rejectOutOfBounds = false
         rejectVersionIf {
-          isOutOfDeclaredBound()
+          isOutOfDeclaredBounds()
         }
       """)
 
