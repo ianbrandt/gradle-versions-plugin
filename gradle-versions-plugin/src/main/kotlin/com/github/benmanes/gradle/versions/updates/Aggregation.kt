@@ -11,7 +11,10 @@ import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.ExternalModuleDependency
 import org.gradle.api.artifacts.ModuleDependency
+import org.gradle.api.artifacts.component.ModuleComponentSelector
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
 import org.gradle.api.attributes.Category
 import org.gradle.api.attributes.VerificationType
 import org.gradle.api.file.Directory
@@ -564,6 +567,30 @@ internal fun registerAggregation(
           view.componentFilter { id -> id is ProjectComponentIdentifier }
           view.lenient(true)
         }.files,
+    )
+    // The artifact view above is lenient and keeps only the project components, so a coordinate
+    // that Gradle substitutes onto no project is dropped without a word and the report is printed
+    // short. Read from the resolution result, which the lenient view does not filter, and mapped
+    // through a provider so that the graph is walked at execution and the configuration cache
+    // stores the provider rather than the result.
+    task.unaggregatedCoordinates.set(
+      results.incoming.resolutionResult.rootComponent.map { root ->
+        root.dependencies
+          .filterNot { it.isConstraint }
+          // Restricted to the coordinates, as this project's own sibling edges are mirrored into
+          // the same configuration and a project with no build script registers no producer for
+          // one to select, which the completeness warning above leaves out for the same reason.
+          .filter { it.requested is ModuleComponentSelector }
+          .mapNotNullTo(sortedSetOf()) { dependency ->
+            when {
+              dependency is UnresolvedDependencyResult -> dependency.requested.displayName
+              dependency is ResolvedDependencyResult &&
+                dependency.selected.id !is ProjectComponentIdentifier ->
+                dependency.selected.id.displayName
+              else -> null
+            }
+          }
+      },
     )
   }
 

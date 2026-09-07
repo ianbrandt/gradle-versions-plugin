@@ -2868,4 +2868,69 @@ final class CompositeBuildSpec extends Specification {
     json.current.dependencies.find { it.name == 'guava' }?.version == '15.0'
     !result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
   }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1004')
+  def 'Warns of an aggregated coordinate that no included build is substituted for'() {
+    given: 'the child is included only under pluginManagement, so it is not substituted'
+    testProjectDir.newFile('settings.gradle') <<
+      """
+        pluginManagement {
+          includeBuild 'child'
+        }
+      """.stripIndent()
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+        }
+      """.stripIndent()
+    includedBuild(
+      'child',
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.example:jvm-library:1.0'
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the coordinate is named, and the child's row is absent"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains(
+      'Left out of the dependency updates report: com.example:child:1.0, which resolved to an ' +
+        'external module rather than to a project.')
+    !result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+  }
 }

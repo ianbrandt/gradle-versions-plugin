@@ -16,6 +16,7 @@ import org.gradle.api.artifacts.Configuration
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.SetProperty
 import org.gradle.api.specs.Spec
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -362,6 +363,14 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   var aggregatedProjectPaths: Set<String> = emptySet()
 
   /**
+   * The aggregation coordinates that Gradle substituted onto no project, wired by the plugin from
+   * the resolution result of the configuration the partial results are collected from.
+   */
+  @get:Internal
+  val unaggregatedCoordinates: SetProperty<String> =
+    project.objects.setProperty(String::class.java)
+
+  /**
    * The directory the partial results are collected under, wired by the plugin only where it can
    * also identify every project that writes one, as the sweep below would otherwise remove a result
    * in use.
@@ -468,6 +477,17 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
           "must apply the io.github.ben-manes.versions or io.github.ben-manes.versions.contributor " +
           "plugin to be aggregated when isolated projects is enabled, and projects that share a " +
           "group and name are aggregated as one.",
+      )
+    }
+    val unaggregated = unaggregatedCoordinates.get()
+    if (unaggregated.isNotEmpty()) {
+      logger.warn(
+        "Left out of the dependency updates report: ${unaggregated.joinToString(", ")}, " +
+          "which resolved to an external module rather than to a project. A build included only " +
+          "under pluginManagement is not substituted from the including build's dependency graph, " +
+          "so its coordinates need a plain includeBuild as well, and an includeBuild that declares " +
+          "a dependencySubstitution block keeps only the rules declared in it, so it needs one for " +
+          "these coordinates.",
       )
     }
     val candidatesByProjectPath = partials.associate { it.projectPath to it.candidates }
