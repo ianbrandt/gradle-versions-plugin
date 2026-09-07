@@ -66,15 +66,15 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
               parameters.checkBuildEnvironmentConstraintsFromCommandLine,
               parameters.checkBuildEnvironmentConstraints ?: false,
             ),
-          rejectOutOfBoundVersions =
+          rejectOutOfBounds =
             settingOf(
-              parameters.rejectOutOfBoundVersionsFromCommandLine,
-              parameters.rejectOutOfBoundVersions ?: true,
+              parameters.rejectOutOfBoundsFromCommandLine,
+              parameters.rejectOutOfBounds ?: true,
             ),
-          rejectPreReleaseVersions =
+          rejectPreReleases =
             settingOf(
-              parameters.rejectPreReleaseVersionsFromCommandLine,
-              parameters.rejectPreReleaseVersions ?: (revision != INTEGRATION_REVISION),
+              parameters.rejectPreReleasesFromCommandLine,
+              parameters.rejectPreReleases ?: (revision != INTEGRATION_REVISION),
             ),
         )
       },
@@ -281,19 +281,19 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   }
 
   @get:Input
-  var rejectOutOfBoundVersions: Boolean
-    get() = inherited.get().rejectOutOfBoundVersions
+  var rejectOutOfBounds: Boolean
+    get() = inherited.get().rejectOutOfBounds
     set(value) {
-      parameters.rejectOutOfBoundVersions = value
+      parameters.rejectOutOfBounds = value
     }
 
   /** Leaves out the versions outside a declared bound for this invocation alone. */
   @Option(
-    option = "reject-out-of-bound-versions",
+    option = "reject-out-of-bounds",
     description = "Leaves out the versions outside a declared bound or a consumed platform's.",
   )
-  internal fun setRejectOutOfBoundVersionsFromCommandLine(rejectOutOfBoundVersions: Boolean) {
-    parameters.rejectOutOfBoundVersionsFromCommandLine = rejectOutOfBoundVersions
+  internal fun setRejectOutOfBoundsFromCommandLine(rejectOutOfBounds: Boolean) {
+    parameters.rejectOutOfBoundsFromCommandLine = rejectOutOfBounds
   }
 
   /**
@@ -304,19 +304,19 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
    * qualifier, and read back as `false` there unless set.
    */
   @get:Input
-  var rejectPreReleaseVersions: Boolean
-    get() = inherited.get().rejectPreReleaseVersions
+  var rejectPreReleases: Boolean
+    get() = inherited.get().rejectPreReleases
     set(value) {
-      parameters.rejectPreReleaseVersions = value
+      parameters.rejectPreReleases = value
     }
 
   /** Leaves out a pre-release candidate, or lets one through, for this invocation alone. */
   @Option(
-    option = "reject-pre-release-versions",
+    option = "reject-pre-releases",
     description = "Leaves out a pre-release candidate when the current version is not a pre-release.",
   )
-  internal fun setRejectPreReleaseVersionsFromCommandLine(rejectPreReleaseVersions: Boolean) {
-    parameters.rejectPreReleaseVersionsFromCommandLine = rejectPreReleaseVersions
+  internal fun setRejectPreReleasesFromCommandLine(rejectPreReleases: Boolean) {
+    parameters.rejectPreReleasesFromCommandLine = rejectPreReleases
   }
 
   @Internal
@@ -463,15 +463,15 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   /**
    * Adds a convention the built-in markers do not cover, such as graphql-java's `-nf-` builds, to
    * the pre-release check. A version the [filter] matches is a pre-release wherever the check reads
-   * one: it is left out under [rejectPreReleaseVersions] and its command line option, a build already
-   * on one is still shown a newer one, and `isPreRelease` in a [rejectVersionIf] rule is true for
-   * it. The convention is part of the built-in check, so it is off wherever that check is, under
-   * `rejectPreReleaseVersions = false` and by default under the `integration` revision. It is given
-   * the version with any build metadata removed, as the markers are, and it is applied to the
-   * version in use as well as to the candidate, which for a constraint declared with no dependency
-   * beside it is the constraint's own range text. Called more than once on a task, the filters
-   * accumulate; a subproject that calls it replaces the root's rather than adding to it, as with
-   * the other predicate settings.
+   * one: it is left out under [rejectPreReleases] and its command line option, a build already on
+   * one is still shown a newer one, and `isPreRelease` in a [rejectVersionIf] rule is true for it.
+   * The convention is part of the built-in check, so it is off wherever that check is, under
+   * `rejectPreReleases = false` and by default under the `integration` revision. It is given the
+   * version with any build metadata removed, as the markers are, and it is applied to the version
+   * in use as well as to the candidate, which for a constraint declared with no dependency beside
+   * it is the constraint's own range text. Called more than once on a task, the filters accumulate;
+   * a subproject that calls it replaces the root's rather than adding to it, as with the other
+   * predicate settings.
    */
   fun preReleaseVersionIf(filter: Spec<String>) {
     val existing = parameters.preReleaseVersionIf
@@ -480,12 +480,12 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   }
 
   /**
-   * Exempts the candidates the [filter] matches from the built-in checks, `rejectPreReleaseVersions`
-   * and `rejectOutOfBoundVersions`, so that the checks stay on for the rest of the build. A candidate
-   * is exempt from both; a filter that reads `!isOutOfDeclaredBound()` or `!isPreRelease()` keeps
-   * that check. The checks are applied with the exemption inside them, so their properties and
-   * command line options apply as they do without it. A [rejectVersionIf] rule is applied whatever
-   * the filter matches. Called more than once on a task, the filters accumulate; a subproject that
+   * Exempts the candidates the [filter] matches from the built-in checks, `rejectPreReleases` and
+   * `rejectOutOfBounds`, so that the checks stay on for the rest of the build. A candidate is
+   * exempt from both; a filter that reads `!isOutOfDeclaredBound()` or `!isPreRelease()` keeps that
+   * check. The checks are applied with the exemption inside them, so their properties and command
+   * line options apply as they do without it. A [rejectVersionIf] rule is applied whatever the
+   * filter matches. Called more than once on a task, the filters accumulate; a subproject that
    * calls it replaces the root's rather than adding to it, as with the other predicate settings.
    */
   fun exemptFromBuiltInChecksIf(filter: ComponentFilter) {

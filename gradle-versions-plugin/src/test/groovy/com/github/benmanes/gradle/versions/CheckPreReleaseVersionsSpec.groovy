@@ -10,7 +10,7 @@ import spock.lang.Issue
 import spock.lang.Specification
 
 /**
- * With {@code rejectPreReleaseVersions}, on by default, a pre-release candidate is left out of the
+ * With {@code rejectPreReleases}, on by default, a pre-release candidate is left out of the
  * report unless the current version is itself a pre-release, in which case a newer pre-release is
  * still reported. A convention the built-in markers do not cover is added to the check with
  * {@code preReleaseVersionIf}, so the property and its option govern it too.
@@ -124,9 +124,9 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies.isEmpty()
   }
 
-  def 'with rejectPreReleaseVersions false the pre-release candidate is reported'() {
+  def 'with rejectPreReleases false the pre-release candidate is reported'() {
     given:
-    writeBuildFile('com.example:prerelease-widget:1.0', 'rejectPreReleaseVersions = false')
+    writeBuildFile('com.example:prerelease-widget:1.0', 'rejectPreReleases = false')
 
     when:
     def report = runReport()
@@ -141,7 +141,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     writeBuildFile('com.example:prerelease-widget:1.0')
 
     when:
-    def report = runReport(['--no-reject-pre-release-versions'])
+    def report = runReport(['--no-reject-pre-releases'])
 
     then:
     report.outdated.dependencies*.name == ['prerelease-widget']
@@ -150,10 +150,10 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
   def 'the command line option overrides the property set to false in the build'() {
     given:
-    writeBuildFile('com.example:prerelease-widget:1.0', 'rejectPreReleaseVersions = false')
+    writeBuildFile('com.example:prerelease-widget:1.0', 'rejectPreReleases = false')
 
     when:
-    def report = runReport(['--reject-pre-release-versions'])
+    def report = runReport(['--reject-pre-releases'])
 
     then:
     report.current.dependencies*.name == ['prerelease-widget']
@@ -235,7 +235,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     given: 'a beta rather than a snapshot, so the exemption covers the whole revision'
     writeBuildFile('com.example:prerelease-widget:1.0', '''
           revision = 'integration'
-          doLast { println "rejectPreReleaseVersions=$rejectPreReleaseVersions" }
+          doLast { println "rejectPreReleases=$rejectPreReleases" }
         ''')
 
     when:
@@ -248,7 +248,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.output.contains('rejectPreReleaseVersions=false')
+    result.output.contains('rejectPreReleases=false')
     report.outdated.dependencies*.name == ['prerelease-widget']
     report.outdated.dependencies[0].available.integration == '1.2-beta'
   }
@@ -257,7 +257,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     given:
     writeBuildFile('com.example:prerelease-widget:1.0', '''
           revision = 'integration'
-          rejectPreReleaseVersions = true
+          rejectPreReleases = true
         ''')
 
     when:
@@ -316,9 +316,9 @@ final class CheckPreReleaseVersionsSpec extends Specification {
         """.stripIndent()
   }
 
-  def 'a subproject inherits rejectPreReleaseVersions from the root task'() {
+  def 'a subproject inherits rejectPreReleases from the root task'() {
     given:
-    writeMultiProjectBuild('com.example:prerelease-widget:1.0', 'rejectPreReleaseVersions = false')
+    writeMultiProjectBuild('com.example:prerelease-widget:1.0', 'rejectPreReleases = false')
 
     when:
     def report = runReport()
@@ -336,7 +336,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
           implementation 'com.example:prerelease-peer:1.0-alpha'
         ''',
       '''
-          rejectPreReleaseVersions = false
+          rejectPreReleases = false
           rejectVersionIf {
             isPreRelease(candidate.version) && !isPreRelease(currentVersion)
           }
@@ -359,7 +359,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
           implementation("com.example:prerelease-peer:1.0-alpha")
         ''',
       '''
-          rejectPreReleaseVersions = false
+          rejectPreReleases = false
           rejectVersionIf {
             isPreRelease(candidate.version) && !isPreRelease(currentVersion)
           }
@@ -377,14 +377,14 @@ final class CheckPreReleaseVersionsSpec extends Specification {
   def 'a rule reading isPreRelease is applied under the command line option too'() {
     given: 'the property is off and the rule has no pre-release exemption for the current version, so only the rule hides the beta'
     writeBuildFile('com.example:prerelease-peer:1.0-alpha', '''
-          rejectPreReleaseVersions = false
+          rejectPreReleases = false
           rejectVersionIf {
             isPreRelease(candidate.version) && candidate.version != currentVersion
           }
         ''')
 
     when: 'the option turns off a built-in check the build already turned off'
-    def report = runReport(['--no-reject-pre-release-versions'])
+    def report = runReport(['--no-reject-pre-releases'])
 
     then: 'the rule is the build\'s own, and still hides the beta'
     report.current.dependencies*.name == ['prerelease-peer']
@@ -394,14 +394,14 @@ final class CheckPreReleaseVersionsSpec extends Specification {
   def 'the positive command line option leaves a rule reading isPreRelease alone'() {
     given: 'the built-in check exempts a build already on a pre-release, so the rule is what hides the beta'
     writeBuildFile('com.example:prerelease-peer:1.0-alpha', '''
-          rejectPreReleaseVersions = false
+          rejectPreReleases = false
           rejectVersionIf {
             isPreRelease(candidate.version) && candidate.version != currentVersion
           }
         ''')
 
     when:
-    def report = runReport(['--reject-pre-release-versions'])
+    def report = runReport(['--reject-pre-releases'])
 
     then:
     report.current.dependencies*.name == ['prerelease-peer']
@@ -416,7 +416,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
           implementation 'com.example:prerelease-peer:1.0-alpha'
         ''',
       '''
-          rejectPreReleaseVersions = false
+          rejectPreReleases = false
           rejectVersionIf {
             isPreRelease()
           }
@@ -465,7 +465,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.current.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
 
     when: 'both options ask for what the two checks leave out'
-    def unfiltered = runReport(['--no-reject-pre-release-versions', '--no-reject-out-of-bound-versions'])
+    def unfiltered = runReport(['--no-reject-pre-releases', '--no-reject-out-of-bounds'])
 
     then: 'both checks are off for that run, and the exemption has nothing left to exempt'
     unfiltered.outdated.dependencies*.name.sort() == ['guava', 'prerelease-flagged', 'prerelease-widget']
@@ -539,13 +539,13 @@ final class CheckPreReleaseVersionsSpec extends Specification {
           implementation 'com.example:prerelease-flagged:1.0'
         ''',
       '''
-          rejectPreReleaseVersions = false
+          rejectPreReleases = false
           preReleaseVersionIf { it.endsWith('-flagged') }
           exemptFromBuiltInChecksIf { candidate.module == 'prerelease-widget' }
         ''')
 
     when:
-    def report = runReport(['--reject-pre-release-versions'])
+    def report = runReport(['--reject-pre-releases'])
 
     then: 'the option turns the check on for the flagged module, and the widget stays exempt'
     report.outdated.dependencies*.name == ['prerelease-widget']
@@ -635,7 +635,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     writeBuildFile('com.example:prerelease-flagged:1.0', "preReleaseVersionIf { it.endsWith('-flagged') }")
 
     when:
-    def report = runReport(['--no-reject-pre-release-versions'])
+    def report = runReport(['--no-reject-pre-releases'])
 
     then:
     report.outdated.dependencies*.name == ['prerelease-flagged']
@@ -645,7 +645,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
   def 'a rule reading isPreRelease answers for the added convention'() {
     given: 'the property is off, so the rule is the only thing that can reject'
     writeBuildFile('com.example:prerelease-flagged:1.0', '''
-          rejectPreReleaseVersions = false
+          rejectPreReleases = false
           preReleaseVersionIf { it.endsWith('-flagged') }
           rejectVersionIf {
             isPreRelease(candidate.version) && !isPreRelease(currentVersion)

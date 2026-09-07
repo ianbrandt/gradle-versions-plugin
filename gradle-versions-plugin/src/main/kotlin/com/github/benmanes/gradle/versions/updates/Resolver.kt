@@ -52,8 +52,8 @@ class Resolver internal constructor(
   private val project: Project,
   private val resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
   private val checkConstraints: Boolean,
-  private val rejectOutOfBoundVersions: Boolean,
-  private val rejectPreReleaseVersions: Boolean,
+  private val rejectOutOfBounds: Boolean,
+  private val rejectPreReleases: Boolean,
   /** The convention added to the pre-release check in the build, null when none is configured. */
   preReleaseVersionIf: Spec<String>?,
   /** The candidates exempted from both built-in checks in the build, null when none is configured. */
@@ -73,8 +73,8 @@ class Resolver internal constructor(
     project,
     resolutionStrategy,
     checkConstraints,
-    rejectOutOfBoundVersions = true,
-    rejectPreReleaseVersions = true,
+    rejectOutOfBounds = true,
+    rejectPreReleases = true,
     preReleaseVersionIf = null,
     exemptFromBuiltInChecksIf = null,
     onDeprecatedBoundRead = deprecatedBoundWarning(project),
@@ -423,7 +423,7 @@ class Resolver internal constructor(
     configuration: Configuration,
     currentCoordinates: Map<Coordinate.Key, Coordinate>,
   ) {
-    if (!rejectOutOfBoundVersions) {
+    if (!rejectOutOfBounds) {
       return
     }
     configuration.resolutionStrategy { inner ->
@@ -431,7 +431,7 @@ class Resolver internal constructor(
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
             if (current.isOutOfDeclaredBound() && !isExempt(current)) {
-              current.reject("Rejected by rejectOutOfBoundVersions")
+              current.reject("Rejected by rejectOutOfBounds")
             }
           },
         )
@@ -452,7 +452,7 @@ class Resolver internal constructor(
     configuration: Configuration,
     currentCoordinates: Map<Coordinate.Key, Coordinate>,
   ) {
-    if (!rejectPreReleaseVersions) {
+    if (!rejectPreReleases) {
       return
     }
     configuration.resolutionStrategy { inner ->
@@ -460,7 +460,7 @@ class Resolver internal constructor(
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
             if (current.isPreRelease() && !isExempt(current)) {
-              current.reject("Pre-release rejected by rejectPreReleaseVersions")
+              current.reject("Pre-release rejected by rejectPreReleases")
             }
           },
         )
@@ -1136,7 +1136,7 @@ internal fun deprecatedBoundWarning(project: Project): () -> Unit {
     if (warned.compareAndSet(false, true)) {
       project.logger.warn(
         "satisfiesDeclaredBound is deprecated; drop it from rejectVersionIf, " +
-          "since rejectOutOfBoundVersions applies the declared bound instead.",
+          "since rejectOutOfBounds applies the declared bound instead.",
       )
     }
   }

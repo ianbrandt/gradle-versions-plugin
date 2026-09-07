@@ -101,8 +101,8 @@ internal class DependencyUpdatesParameters {
   var resolutionStrategySet: Boolean = false
   var checkConstraints: Boolean? = null
   var checkBuildEnvironmentConstraints: Boolean? = null
-  var rejectOutOfBoundVersions: Boolean? = null
-  var rejectPreReleaseVersions: Boolean? = null
+  var rejectOutOfBounds: Boolean? = null
+  var rejectPreReleases: Boolean? = null
 
   /**
    * Set by the task's command line options. Read ahead of every configured value in the chain, so
@@ -110,8 +110,8 @@ internal class DependencyUpdatesParameters {
    */
   var checkConstraintsFromCommandLine: Boolean? = null
   var checkBuildEnvironmentConstraintsFromCommandLine: Boolean? = null
-  var rejectOutOfBoundVersionsFromCommandLine: Boolean? = null
-  var rejectPreReleaseVersionsFromCommandLine: Boolean? = null
+  var rejectOutOfBoundsFromCommandLine: Boolean? = null
+  var rejectPreReleasesFromCommandLine: Boolean? = null
 }
 
 /**
@@ -192,19 +192,18 @@ internal abstract class DependencyUpdatesParametersService :
             chain.firstNotNullOfOrNull { it.checkBuildEnvironmentConstraintsFromCommandLine },
           configured = chain.firstNotNullOfOrNull { it.checkBuildEnvironmentConstraints } ?: false,
         ),
-      rejectOutOfBoundVersions =
+      rejectOutOfBounds =
         settingOf(
-          fromCommandLine = chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersionsFromCommandLine },
-          configured = chain.firstNotNullOfOrNull { it.rejectOutOfBoundVersions } ?: true,
+          fromCommandLine = chain.firstNotNullOfOrNull { it.rejectOutOfBoundsFromCommandLine },
+          configured = chain.firstNotNullOfOrNull { it.rejectOutOfBounds } ?: true,
         ),
       // Off by default under the integration revision, which selects the newest version whatever
       // its qualifier, snapshots included. An explicit setting still applies there.
-      rejectPreReleaseVersions =
+      rejectPreReleases =
         settingOf(
-          fromCommandLine = chain.firstNotNullOfOrNull { it.rejectPreReleaseVersionsFromCommandLine },
+          fromCommandLine = chain.firstNotNullOfOrNull { it.rejectPreReleasesFromCommandLine },
           configured =
-            chain.firstNotNullOfOrNull { it.rejectPreReleaseVersions }
-              ?: (revision != INTEGRATION_REVISION),
+            chain.firstNotNullOfOrNull { it.rejectPreReleases } ?: (revision != INTEGRATION_REVISION),
         ),
     )
   }
@@ -218,8 +217,8 @@ internal class InheritedSettings(
   val revision: String,
   val checkConstraints: Boolean,
   val checkBuildEnvironmentConstraints: Boolean,
-  val rejectOutOfBoundVersions: Boolean,
-  val rejectPreReleaseVersions: Boolean,
+  val rejectOutOfBounds: Boolean,
+  val rejectPreReleases: Boolean,
 )
 
 /** The settings that apply to a single project's producer. */
@@ -232,8 +231,8 @@ internal class ResolvedParameters(
   val exemptFromBuiltInChecksIf: ComponentFilter?,
   val checkConstraints: Boolean,
   val checkBuildEnvironmentConstraints: Boolean,
-  val rejectOutOfBoundVersions: Boolean,
-  val rejectPreReleaseVersions: Boolean,
+  val rejectOutOfBounds: Boolean,
+  val rejectPreReleases: Boolean,
 )
 
 /** Registers the per-project producers and wires their results into the accumulator task. */
@@ -256,8 +255,8 @@ internal fun registerAggregation(
         revision = resolved.revision,
         checkConstraints = resolved.checkConstraints,
         checkBuildEnvironmentConstraints = resolved.checkBuildEnvironmentConstraints,
-        rejectOutOfBoundVersions = resolved.rejectOutOfBoundVersions,
-        rejectPreReleaseVersions = resolved.rejectPreReleaseVersions,
+        rejectOutOfBounds = resolved.rejectOutOfBounds,
+        rejectPreReleases = resolved.rejectPreReleases,
       )
     }
   accumulator.configure { task ->
@@ -638,8 +637,8 @@ private fun statusesOf(
       project,
       parameters.resolutionStrategy,
       checkConstraints = checkConstraints,
-      rejectOutOfBoundVersions = parameters.rejectOutOfBoundVersions,
-      rejectPreReleaseVersions = parameters.rejectPreReleaseVersions,
+      rejectOutOfBounds = parameters.rejectOutOfBounds,
+      rejectPreReleases = parameters.rejectPreReleases,
       preReleaseVersionIf = parameters.preReleaseVersionIf,
       exemptFromBuiltInChecksIf = parameters.exemptFromBuiltInChecksIf,
       onDeprecatedBoundRead = onDeprecatedBoundRead,

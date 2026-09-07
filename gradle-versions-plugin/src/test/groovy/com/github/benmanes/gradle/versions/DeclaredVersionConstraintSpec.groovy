@@ -251,7 +251,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
         api 'com.google.guava:guava:15.0'
       """,
       """
-        rejectOutOfBoundVersions = false
+        rejectOutOfBounds = false
         rejectVersionIf {
           isOutOfDeclaredBound()
         }
@@ -281,14 +281,14 @@ final class DeclaredVersionConstraintSpec extends Specification {
         }
       """,
       """
-        rejectOutOfBoundVersions = false
+        rejectOutOfBounds = false
         rejectVersionIf {
           isOutOfDeclaredBound()
         }
       """)
 
     when: 'the option turns off a built-in check the build already turned off'
-    run('--no-reject-out-of-bound-versions')
+    run('--no-reject-out-of-bounds')
 
     then: 'the rule is the build\'s own, and still stops guice below the version it rejects'
     report().outdated.dependencies*.name == ['guice']
@@ -341,7 +341,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
     guice.available.milestone == '2.0'
   }
 
-  def 'with rejectOutOfBoundVersions = false the version the build rejects is listed'() {
+  def 'with rejectOutOfBounds = false the version the build rejects is listed'() {
     given:
     writeBuildFile(
       """
@@ -352,7 +352,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
           }
         }
       """,
-      'rejectOutOfBoundVersions = false')
+      'rejectOutOfBounds = false')
 
     when:
     run()
@@ -376,7 +376,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
       '')
 
     when:
-    run('--no-reject-out-of-bound-versions')
+    run('--no-reject-out-of-bounds')
 
     then: 'the version left out by the bound is listed'
     report().outdated.dependencies*.name == ['guice']
@@ -410,7 +410,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
         tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
           outputFormatter = "json"
           checkForGradleUpdate = false
-          rejectOutOfBoundVersions = false
+          rejectOutOfBounds = false
         }
       """.stripIndent()
 
@@ -821,7 +821,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
         api platform('org.apache.logging.log4j:log4j:2.16.0')
         api 'org.apache.logging.log4j:log4j-core'
       """,
-      'rejectOutOfBoundVersions = false')
+      'rejectOutOfBounds = false')
 
     when:
     run()
@@ -863,7 +863,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
       """,
       """
         checkConstraints = true
-        rejectOutOfBoundVersions = false
+        rejectOutOfBounds = false
         rejectVersionIf {
           if (candidate.module == 'log4j-core' && currentVersion == '2.16.0') {
             println "PROBE \${candidate.module}@\${candidate.version} bound=\${satisfiesDeclaredBound}" +
@@ -1083,7 +1083,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
       """,
       """
         checkConstraints = true
-        rejectOutOfBoundVersions = false
+        rejectOutOfBounds = false
         rejectVersionIf {
           if (candidate.module == 'guice' && currentVersion == '2.0') {
             println "PROBE guice@\${candidate.version} bound=\${satisfiesDeclaredBound}"

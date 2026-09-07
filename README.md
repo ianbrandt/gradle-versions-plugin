@@ -309,11 +309,11 @@ tasks.named("dependencyUpdates").configure {
   report (see [Constraints](#constraints)).
 
 Nothing else is needed. A pre-release candidate is left out by
-`rejectPreReleaseVersions`, and a candidate outside a `strictly` or `reject`
-bound written in the build, outside a dynamic version declared on the
-buildscript classpath, or outside the version fixed by a consumed platform is
-left out by `rejectOutOfBoundVersions`. Both are on by default (see [Filtering
-unstable versions](#filtering-unstable-versions) and [Respecting declared
+`rejectPreReleases`, and a candidate outside a `strictly` or `reject` bound
+written in the build, outside a dynamic version declared on the buildscript
+classpath, or outside the version fixed by a consumed platform is left out by
+`rejectOutOfBounds`. Both are on by default (see [Filtering unstable
+versions](#filtering-unstable-versions) and [Respecting declared
 bounds](#respecting-declared-bounds)); set either to `false` to see what it
 leaves out.
 
@@ -336,8 +336,8 @@ command line option, since no command line can express the logic.
 | [`checkBuildEnvironmentConstraints`](#constraints) | `true`, `false` | `false` | `--[no-]check-build-environment-constraints` |
 | [`filterConfigurations`](#filterconfigurations) | a `Spec<Configuration>` | every configuration | |
 | [`filterDeclaredConfigurations`](#filterdeclaredconfigurations) | a `Spec<String>` | every name | |
-| [`rejectOutOfBoundVersions`](#respecting-declared-bounds) | `true`, `false` | `true` | `--[no-]reject-out-of-bound-versions` |
-| [`rejectPreReleaseVersions`](#filtering-unstable-versions) | `true`, `false` | `true` | `--[no-]reject-pre-release-versions` |
+| [`rejectOutOfBounds`](#respecting-declared-bounds) | `true`, `false` | `true` | `--[no-]reject-out-of-bounds` |
+| [`rejectPreReleases`](#filtering-unstable-versions) | `true`, `false` | `true` | `--[no-]reject-pre-releases` |
 | [`preReleaseVersionIf`](#filtering-unstable-versions) | a predicate over a version string | nothing added | |
 | [`exemptFromBuiltInChecksIf`](#filtering-unstable-versions) | a predicate over the candidate | nothing exempt | |
 | [`rejectVersionIf`](#filtering-unstable-versions) | a predicate over the candidate | nothing rejected | |
@@ -737,9 +737,9 @@ version with a qualifier not in the list, such as `10.2.0.jre11`, `1.1.17.SP2`
 or `0.4-groovy-1.6`, is passed through rather than hidden.
 
 Under the `integration` revision the filter is off by default, and
-`rejectPreReleaseVersions` reads `false`: that revision selects the newest
-version whatever its qualifier, snapshots included. Setting the property, or
-passing the option, turns it on there too.
+`rejectPreReleases` reads `false`: that revision selects the newest version
+whatever its qualifier, snapshots included. Setting the property, or passing the
+option, turns it on there too.
 
 A candidate is left out by being rejected, so for a module with only
 pre-releases published, and the declared version no longer among them, no
@@ -752,10 +752,10 @@ builds, is added to the check with `preReleaseVersionIf`. A version it matches
 is a pre-release wherever the check reads one: it is left out under the same
 property and option, a build already on one is still shown a newer one, and
 `isPreRelease` in a rule is true for it. The convention is part of the built-in
-check, so it is off wherever that check is, under `rejectPreReleaseVersions =
-false` and by default under the `integration` revision. It is given the version
-with any build metadata removed, as the markers are, and it is applied to the
-version in use as well as to the candidate. Called more than once on a task, the
+check, so it is off wherever that check is, under `rejectPreReleases = false`
+and by default under the `integration` revision. It is given the version with
+any build metadata removed, as the markers are, and it is applied to the version
+in use as well as to the candidate. Called more than once on a task, the
 predicates accumulate; a subproject that calls it replaces the root's rather
 than adding to it (see [Shared task settings](#shared-task-settings)):
 
@@ -790,19 +790,18 @@ exception belongs in `exemptFromBuiltInChecksIf`, below. A filter is for a
 policy the checks cannot express, such as pinning a module. A candidate is left
 out if either rejects it, and neither can restore what the other rejected. To
 see every published candidate, including the pre-releases, turn the built-in
-filter off with `rejectPreReleaseVersions = false`, or with
-`--no-reject-pre-release-versions` for a single run (see [Command line
-options](#command-line-options)).
+filter off with `rejectPreReleases = false`, or with `--no-reject-pre-releases`
+for a single run (see [Command line options](#command-line-options)).
 
 A module can be exempted from both built-in checks, with the checks left on for
-the rest of the build. `exemptFromBuiltInChecksIf` takes the same predicate
-over the candidate as `rejectVersionIf`; a candidate it matches is not held to
-`rejectPreReleaseVersions` or to `rejectOutOfBoundVersions`. The exemption is
-applied inside the checks, so the two properties and their options apply as
-they do without it: `--no-reject-pre-release-versions` still turns the check
-off for a single run, and the positive option turns it on with the exemption in
-place. Called more than once on a task, the predicates accumulate; a subproject
-that calls it replaces the root's rather than adding to it (see [Shared task
+the rest of the build. `exemptFromBuiltInChecksIf` takes the same predicate over
+the candidate as `rejectVersionIf`; a candidate it matches is not held to
+`rejectPreReleases` or to `rejectOutOfBounds`. The exemption is applied
+inside the checks, so the two properties and their options apply as they do
+without it: `--no-reject-pre-releases` still turns the check off for a single
+run, and the positive option turns it on with the exemption in place. Called
+more than once on a task, the predicates accumulate; a subproject that calls it
+replaces the root's rather than adding to it (see [Shared task
 settings](#shared-task-settings)). Here one module is allowed both its
 pre-releases and the versions its declaration bounds out, while every other
 module is held to the same two checks:
@@ -1031,7 +1030,7 @@ tasks.named("dependencyUpdates").configure {
 The report is held to the bounds written in the build. A candidate outside a
 bound on the declaration, or outside the version fixed by a consumed platform,
 is left out, so the only versions listed are ones the build can actually be
-moved to. Set `rejectOutOfBoundVersions` to `false` to turn that off:
+moved to. Set `rejectOutOfBounds` to `false` to turn that off:
 
 <details open>
 <summary>Kotlin</summary>
@@ -1040,7 +1039,7 @@ moved to. Set `rejectOutOfBoundVersions` to `false` to turn that off:
 import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
 
 tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
-  rejectOutOfBoundVersions = false
+  rejectOutOfBounds = false
 }
 ```
 
@@ -1051,14 +1050,14 @@ tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
 
 ```groovy
 tasks.named("dependencyUpdates").configure {
-  rejectOutOfBoundVersions = false
+  rejectOutOfBounds = false
 }
 ```
 
 </details>
 
 To see what is left out, without an edit to the build script, run
-`./gradlew dependencyUpdates --no-reject-out-of-bound-versions`. Run it to
+`./gradlew dependencyUpdates --no-reject-out-of-bounds`. Run it to
 learn what a bounded module could be moved to if the bound were lifted, such
 as whether a fix was released for the module ahead of its platform.
 
@@ -1991,11 +1990,11 @@ task by that name now fails with a duplicate-task error—rename yours.
 The settings that control resolution (`revision`, `rejectVersionIf` or a full
 `resolutionStrategy`, `filterConfigurations`, `filterDeclaredConfigurations`,
 `checkConstraints`, `checkBuildEnvironmentConstraints`,
-`rejectOutOfBoundVersions`, `rejectPreReleaseVersions`, `preReleaseVersionIf`,
-and `exemptFromBuiltInChecksIf`) are inherited from
-the nearest project up the hierarchy whose task set them. Configuring the root
-project's task therefore covers every project, unless a subproject configures
-its own (see [Task properties](#task-properties)).
+`rejectOutOfBounds`, `rejectPreReleases`, `preReleaseVersionIf`, and
+`exemptFromBuiltInChecksIf`) are inherited from the nearest project up the
+hierarchy whose task set them. Configuring the root project's task therefore
+covers every project, unless a subproject configures its own (see [Task
+properties](#task-properties)).
 
 #### Composite builds
 
@@ -2364,15 +2363,15 @@ the newest of them before:
 > [!IMPORTANT]
 > - A dependency with no newer release, only a newer pre-release, is now
 >   reported as up to date, where that pre-release was reported before. Set
->   `rejectPreReleaseVersions = false` to include pre-releases again, or pass
->   `--no-reject-pre-release-versions` for a single run (see [Filtering unstable
+>   `rejectPreReleases = false` to include pre-releases again, or pass
+>   `--no-reject-pre-releases` for a single run (see [Filtering unstable
 >   versions](#filtering-unstable-versions)).
 > - A candidate outside a `strictly` or `reject` bound written in the build,
 >   outside a dynamic version declared on the buildscript classpath, or outside
 >   the version fixed by a consumed platform, is left out of the report, where
->   it was listed before. Set `rejectOutOfBoundVersions = false` to list it
->   again, or pass `--no-reject-out-of-bound-versions` for a single run (see
->   [Respecting declared bounds](#respecting-declared-bounds)).
+>   it was listed before. Set `rejectOutOfBounds = false` to list it again, or
+>   pass `--no-reject-out-of-bounds` for a single run (see [Respecting declared
+>   bounds](#respecting-declared-bounds)).
 > - A coordinate's group and name can now appear on two entries of one report,
 >   and in two of its sections. The projects for each entry are included in
 >   `projects` (see [Multi-project builds](#multi-project-builds)), which is
@@ -2388,15 +2387,14 @@ the newest of them before:
 >   with `preReleaseVersionIf`, so the property and its option govern it too,
 >   and it is off wherever the property is.
 > - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
->   bound is now applied by `rejectOutOfBoundVersions`. A build that needs an
->   exception for a module it bounds exempts it with
->   `exemptFromBuiltInChecksIf` (see [Filtering unstable
->   versions](#filtering-unstable-versions)). The member is
->   deprecated and will be removed in a later release; a warning is printed
->   once per project when a rule reads it, and a Kotlin DSL build that treats
+>   bound is now applied by `rejectOutOfBounds`. A build that needs an exception
+>   for a module it bounds exempts it with `exemptFromBuiltInChecksIf` (see
+>   [Filtering unstable versions](#filtering-unstable-versions)). The member is
+>   deprecated and will be removed in a later release; a warning is printed once
+>   per project when a rule reads it, and a Kotlin DSL build that treats
 >   compiler warnings as errors has to drop the clause before upgrading. With
 >   the clause still in a rule, the same candidates are rejected under
->   `--no-reject-out-of-bound-versions` as without it.
+>   `--no-reject-out-of-bounds` as without it.
 
 > [!NOTE]
 > - Newer pre-releases are still reported when the current version is itself a
