@@ -2072,8 +2072,8 @@ build's root project aggregates its whole build, so the root's coordinates merge
 all of it, and a subproject's coordinates merge only what that subproject
 aggregates. Merging stops at that build's boundary: a build included by the
 declared build has to be declared in turn, which reaches it however deeply it is
-included. A project of this build that the aggregating project's own tree
-does not cover, such as a sibling, is declared the same way:
+included by a plain `includeBuild`. A project of this build that the aggregating
+project's own tree does not cover, such as a sibling, is declared the same way:
 
 <details open>
 <summary>Kotlin</summary>
@@ -2098,6 +2098,17 @@ dependencies {
 ```
 
 </details>
+
+Two Gradle rules decide whether a coordinate is substituted at all. A build
+included only under `pluginManagement` is not substituted from the including
+build's dependency graph, so the aggregating settings need a plain
+`includeBuild` for it as well. An `includeBuild` that declares a
+`dependencySubstitution` block keeps only the rules declared in it, the
+automatic `group:name` rule included, so a rule for the aggregated coordinates
+has to be declared there too. A coordinate substituted onto no project stays an
+external module and none of its entries are merged; a warning names it, rather
+than the build failing, so an entry left over from a build that is no longer
+included does not break the build.
 
 The task that writes the report applies its settings to every entry in it,
 including the entries an included build resolved and the entries its subprojects
@@ -2136,7 +2147,9 @@ The version accepted in the producing build is the one that build resolved.
 
 The settings that control what is resolved apply in the build that resolves it:
 `filterConfigurations`, `checkConstraints`, `checkBuildEnvironmentConstraints`,
-and `revision`. Declare those in each included build.
+and `revision`. Declare those in each included build. The Gradle update check is
+read from the report being asked for, so `checkForGradleUpdate` and
+`gradleReleaseChannel` set in a merged build do not reach it.
 
 A report that applies its rules to another build's entries stores those rules in
 the configuration cache. A Kotlin rule that calls a function declared in the
