@@ -103,8 +103,9 @@ internal class Judge(
     if (!hasRules && !rejectPreReleases) {
       return statuses
     }
+    val versionsByProjectPath = candidatesByProjectPath.mapValues { (_, candidates) -> versionsByModule(candidates) }
     return try {
-      statuses.map { status -> judgeRow(status, candidatesByProjectPath) }
+      statuses.map { status -> judgeRow(status, versionsByProjectPath) }
     } catch (e: Exception) {
       // A rule body throws where registering it did not: a closure serialized into the
       // configuration cache without the build script it reads hits the missing method only once a
@@ -117,22 +118,17 @@ internal class Judge(
 
   private fun judgeRow(
     status: PartialStatus,
-    candidatesByProjectPath: Map<String, List<String>>,
+    versionsByProjectPath: Map<String, Map<String, List<String>>>,
   ): PartialStatus {
     if (status.unresolved != null) {
       return status
     }
-    val candidates = status.projectPath?.let { candidatesByProjectPath[it] }.orEmpty()
-    val prefix = "${status.group}:${status.name}:"
-    // Sorted rather than read as recorded: a candidate is recorded in the order its repository
-    // lists it, so a module found in more than one repository is recorded newest-first per
-    // repository rather than newest-first overall, and the verdict can trail candidates older than
-    // itself. The walk below reads position as age, so the order has to match.
-    val moduleCandidates =
-      candidates
-        .filter { it.startsWith(prefix) }
-        .sortedWith(compareByDescending(VersionMapping.versionComparator()) { it.substring(prefix.length) })
-    val ceilingIndex = moduleCandidates.indexOf("$prefix${status.latestVersion}")
+    val moduleVersions =
+      status.projectPath
+        ?.let { versionsByProjectPath[it] }
+        ?.get("${status.group}:${status.name}")
+        .orEmpty()
+    val ceilingIndex = moduleVersions.indexOf(status.latestVersion)
     if (ceilingIndex < 0) {
       return status
     }
@@ -155,8 +151,8 @@ internal class Judge(
     // synthesized UnresolvedInfo is always the ceiling, so the reason reported has to be why that
     // version was rejected rather than why some older candidate further down the walk was.
     var ceilingReason: String? = null
-    for (index in ceilingIndex until moduleCandidates.size) {
-      val version = moduleCandidates[index].substring(prefix.length)
+    for (index in ceilingIndex until moduleVersions.size) {
+      val version = moduleVersions[index]
       val shim = RecordedComponentSelection(status.group, status.name, version)
       // Applied at the ceiling as well as below it, and ahead of the rules, as the producer
       // applies it ahead of a build's own rules. The version a producer baked was accepted under
@@ -266,6 +262,31 @@ internal class Judge(
   /** Rebuilds the constraint the four serialized strings captured; `branch` is not serialized. */
   private fun ConstraintInfo.toVersionConstraint(): VersionConstraint =
     DefaultImmutableVersionConstraint(preferred, required, strict, rejected, "")
+
+  /**
+   * Returns the recorded candidates of one project as the versions of each module, newest first.
+   * Partitioned once for the whole report rather than per row, which would rescan and resort every
+   * candidate the project recorded for each of its rows.
+   *
+   * Sorted rather than read as recorded: a candidate is recorded in the order its repository lists
+   * it, so a module found in more than one repository is recorded newest-first per repository
+   * rather than newest-first overall, and the verdict can trail candidates older than itself. The
+   * walk in [judgeRow] reads position as age, so the order has to match.
+   */
+  private fun versionsByModule(candidates: List<String>): Map<String, List<String>> {
+    val byModule = mutableMapOf<String, MutableList<String>>()
+    for (candidate in candidates) {
+      val group = candidate.indexOf(':')
+      if (group < 0) continue
+      val name = candidate.indexOf(':', group + 1)
+      if (name < 0) continue
+      byModule
+        .getOrPut(candidate.substring(0, name)) { mutableListOf() }
+        .add(candidate.substring(name + 1))
+    }
+    val newestFirst = VersionMapping.versionComparator().reversed()
+    return byModule.mapValues { (_, versions) -> versions.sortedWith(newestFirst) }
+  }
 
   private companion object {
     /** The reason a producer prints for the same rejection, so a row reads alike either way. */
