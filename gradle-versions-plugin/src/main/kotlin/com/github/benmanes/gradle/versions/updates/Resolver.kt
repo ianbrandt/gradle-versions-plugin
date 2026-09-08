@@ -160,7 +160,13 @@ class Resolver internal constructor(
     val current = getCurrentCoordinates(configuration, declaredKeys(), nameDeclaringConfiguration, scriptClasspath)
     val latestConfiguration = createLatestConfiguration(configuration, revision, current)
     val root = latestConfiguration.incoming.resolutionResult.root
-    recordAllCandidates(configuration, current)
+    // The recording pass enriches the report rather than producing it, so a failure in it costs
+    // the candidate lists alone. Letting it throw would discard every status the first-accept walk
+    // above already resolved and report the whole configuration as skipped.
+    runCatching { recordAllCandidates(configuration, current) }
+      .onFailure { e ->
+        project.logger.info("Skipping the recorded candidates of ${configuration.name}", e)
+      }
     return getStatus(current, root)
   }
 
