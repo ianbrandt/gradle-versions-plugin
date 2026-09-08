@@ -5,6 +5,7 @@ import org.gradle.api.artifacts.ComponentMetadata
 import org.gradle.api.artifacts.ComponentSelection
 import org.gradle.api.artifacts.ModuleIdentifier
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import java.util.Objects
 
 /** A value [ModuleComponentIdentifier] over three strings, with no live Gradle component behind it. */
 private class RecordedModuleComponentIdentifier(
@@ -30,12 +31,7 @@ private class RecordedModuleComponentIdentifier(
     return group == other.group && module == other.module && version == other.version
   }
 
-  override fun hashCode(): Int {
-    var result = group.hashCode()
-    result = 31 * result + module.hashCode()
-    result = 31 * result + version.hashCode()
-    return result
-  }
+  override fun hashCode(): Int = Objects.hash(group, module, version)
 }
 
 /**
