@@ -50,6 +50,12 @@ data class PartialStatus
     val constraint: ConstraintInfo? = null,
     /** The constraints declared for this module by the platforms its consumer depends on. */
     val platformConstraints: List<ConstraintInfo> = emptyList(),
+    /**
+     * Whether the build declared this module on a script classpath, which is what lets a dynamic
+     * required version be read as a bound. Trails for the same reason as [platformProjects].
+     * https://github.com/ben-manes/gradle-versions-plugin/issues/755
+     */
+    val onScriptClasspath: Boolean = false,
   ) {
     val coordinate: Coordinate
       get() = Coordinate(group, name, declaredVersion, userReason, divergentLatest)

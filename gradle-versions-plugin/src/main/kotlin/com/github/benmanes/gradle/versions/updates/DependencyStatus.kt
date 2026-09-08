@@ -90,6 +90,7 @@ class DependencyStatus {
       constrainedBy = coordinate.constrainedBy,
       constraint = coordinate.versionConstraint?.toConstraintInfo(),
       platformConstraints = coordinate.platformVersionConstraints.map { it.toConstraintInfo() },
+      onScriptClasspath = coordinate.onScriptClasspath,
     )
   }
 

@@ -143,6 +143,11 @@ internal class Judge(
         status.constraint?.toVersionConstraint(),
         status.platformConstraints.map { it.toVersionConstraint() },
       )
+    // Carried from the partial rather than left at its default: a plugin marker's dynamic required
+    // version is a bound rather than a floor, and a rule reading it here answers as it does at the
+    // producer that recorded the row.
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/755
+    current.onScriptClasspath = status.onScriptClasspath
     currentHolder.clear()
     currentHolder[rowKey] = current
     val rules = collector.rulesFor(status.group, status.name)

@@ -597,6 +597,70 @@ final class DeclaredVersionConstraintSpec extends Specification {
     result.output.contains('com.google.inject:guice [3.0 -> 7.0.0]')
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/755')
+  def 'a merged script classpath row is bounded by the range its own build declared'() {
+    given: 'an included build declaring a classpath range, merged into a report whose rule bounds it'
+    testProjectDir.newFile('settings.gradle') <<
+      """
+        rootProject.name = 'root'
+        includeBuild 'child'
+      """.stripIndent()
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'java-library'
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+          rejectOutOfBounds = false
+          rejectVersionIf {
+            isOutOfDeclaredBounds()
+          }
+        }
+      """.stripIndent()
+
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+          configurations.create('probeClasspath')
+          dependencies {
+            classpath files($classpathString)
+            probeClasspath 'com.google.inject:guice:[2.0, 3.0['
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+          rejectOutOfBounds = false
+        }
+      """.stripIndent()
+
+    when:
+    def result = run()
+
+    then: 'the merged row stops inside the range, as a row this build resolved itself does'
+    result.output.contains(' - com.google.inject:guice:2.2')
+    !result.output.contains('com.google.inject:guice [2.2 -> ')
+  }
+
   def 'a module with no declared bound is not bounded'() {
     given: 'a plain declaration is a floor resolution may rise above, not a bound'
     writeBuildFile(
