@@ -165,6 +165,55 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Unroll
+  def 'Reports the project url of a module an included build substitutes as #projectUrl'() {
+    given:
+    testProjectDir.newFile('settings.gradle') << settings
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'java-library'
+          id 'io.github.ben-manes.versions'
+        }
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          implementation 'com.example:interpolated-url:1.0'
+        }
+      """.stripIndent()
+    includedBuild(
+      'interpolated-url',
+      """
+        plugins {
+          id 'java-library'
+        }
+
+        group = 'com.example'
+        version = '1.0'
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=json')
+    def jsonReport = new JsonSlurper()
+      .parse(new File(testProjectDir.root, 'build/dependencyUpdates/report.json'))
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    def dependency = jsonReport.current.dependencies.find { it.name == 'interpolated-url' }
+    dependency.projectUrl == projectUrl
+
+    where:
+    settings                             | projectUrl
+    ''                                   | 'https://example.com/com.example/interpolated-url/1.0'
+    "includeBuild 'interpolated-url'"    | null
+  }
+
+  @Unroll
   @Issue([
     'https://github.com/ben-manes/gradle-versions-plugin/issues/781',
     'https://github.com/ben-manes/gradle-versions-plugin/issues/1004',

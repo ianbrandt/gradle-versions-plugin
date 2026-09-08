@@ -912,9 +912,10 @@ class Resolver internal constructor(
 
   private fun resolveProjectUrl(id: ModuleVersionIdentifier): String? {
     return try {
-      // An ArtifactResolutionQuery has no resolution strategy, so it cannot be exempted from the
-      // build's dependency verification, which has no entry for the version being queried. A
-      // detached configuration for the pom artifact resolves the same file and can be.
+      // An ArtifactResolutionQuery cannot be exempted from dependency verification, as there is
+      // no resolution strategy on it, and the candidate version is never in the build's metadata.
+      // The artifact-only notation is what keeps an included build that substitutes the module
+      // from being built to produce its jar.
       val pom = project.dependencies.create("${id.group}:${id.name}:${id.version}@pom")
       val copy = project.configurations.detachedConfiguration(pom).setTransitive(false)
       copy.resolutionStrategy.disableDependencyVerification()
