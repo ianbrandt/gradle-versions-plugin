@@ -2036,6 +2036,48 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A rejectVersionIf inherited from an ancestor project governs a merged-in row"() {
+    given: "the rule is declared on the root, while the subproject is what aggregates the child"
+    testProjectDir.newFile('settings.gradle') <<
+      """
+        include 'app'
+        includeBuild 'child'
+      """.stripIndent()
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.1'
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('app')
+    testProjectDir.newFile('app/build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+      """.stripIndent()
+    judgedChild()
+
+    when:
+    def result = run(':app:dependencyUpdates')
+
+    then: "the subproject's judge reads the same inherited chain its producers resolve under"
+    result.task(':app:dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "An including build's rejectVersionIf governs a merged-in row under the configuration cache"() {
     given: "the same composite, run with the cache stored and then reused"
     judgedComposite()

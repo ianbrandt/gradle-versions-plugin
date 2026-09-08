@@ -147,9 +147,7 @@ internal class DependencyUpdatesParameters {
   var filterDeclaredConfigurations: Spec<String>? = null
     set(value) {
       field = value
-      if (judgesAnotherPolicy) {
-        judgingFilterDeclaredConfigurations = value
-      }
+      onRulesChanged?.invoke()
       onOwnJudgingRule?.invoke()
     }
 
@@ -157,43 +155,34 @@ internal class DependencyUpdatesParameters {
   var resolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
     set(value) {
       field = value
-      if (judgesAnotherPolicy) {
-        judgingResolutionStrategy = value
-      }
+      onRulesChanged?.invoke()
     }
 
   @Transient
   var preReleaseVersionIf: Spec<String>? = null
     set(value) {
       field = value
-      if (judgesAnotherPolicy) {
-        judgingPreReleaseVersionIf = value
-      }
+      onRulesChanged?.invoke()
     }
 
   @Transient
   var exemptFromBuiltInChecksIf: ComponentFilter? = null
     set(value) {
       field = value
-      if (judgesAnotherPolicy) {
-        judgingExemptFromBuiltInChecksIf = value
-      }
+      onRulesChanged?.invoke()
     }
 
   /**
    * Whether a row merged into this report was resolved under rules other than this task's, which
-   * is the only case where judging can change an answer. Turning it on captures the strategy and
-   * the filter for the judge, and both stay captured as either is reconfigured, so they may be set
-   * in any order and any number of times.
+   * is the only case where judging can change an answer. Turning it on captures the rules for the
+   * judge, and they stay captured as any of them is reconfigured, so they may be set in any order
+   * and any number of times.
    */
   var judgesAnotherPolicy: Boolean = false
     set(value) {
       field = value
       if (value) {
-        judgingResolutionStrategy = resolutionStrategy
-        judgingFilterDeclaredConfigurations = filterDeclaredConfigurations
-        judgingPreReleaseVersionIf = preReleaseVersionIf
-        judgingExemptFromBuiltInChecksIf = exemptFromBuiltInChecksIf
+        onRulesChanged?.invoke()
       }
     }
 
@@ -258,6 +247,17 @@ internal class DependencyUpdatesParameters {
   @Transient
   var onOwnJudgingRule: (() -> Unit)? = null
 
+  /**
+   * Notified as a rule is declared here or as this report starts merging another policy's rows, so
+   * that the service refills the judging fields above from the chain this project inherits. The
+   * rules are copied from that chain rather than from the fields beside them: a rule declared on an
+   * ancestor governs what this project's producers resolve, so a judge reading only what is
+   * declared here would hold the rows it merges to no rule at all. Transient, for the same reason
+   * as the notification above.
+   */
+  @Transient
+  var onRulesChanged: (() -> Unit)? = null
+
   /** Distinguishes a strategy that was explicitly cleared from one that was never set. */
   var resolutionStrategySet: Boolean = false
     set(value) {
@@ -299,7 +299,7 @@ internal abstract class DependencyUpdatesParametersService :
    * state between the projects a hook configures.
    */
   @Volatile
-  var settingsConfigurations: List<Configuration> = emptyList()
+  var settingsConfigurations: ConfigurationContainer? = null
 
   /**
    * The directory that the partial results are collected under, which the project at the root path
@@ -329,6 +329,7 @@ internal abstract class DependencyUpdatesParametersService :
   ) {
     byPath[path] = parameters
     parameters.onOwnJudgingRule = { noteOwnJudgingRule(path) }
+    parameters.onRulesChanged = { captureJudgingRules() }
     // Registered as the task is realized, which is before the build script's configuration of it
     // runs, so a rule already declared here came from a plugin or an earlier hook and would
     // otherwise be missed.
@@ -337,6 +338,32 @@ internal abstract class DependencyUpdatesParametersService :
     }
     if (ownJudgingRules.any { isBelow(it, path) }) {
       parameters.judgesAnotherPolicy = true
+    }
+    // A report already merging another policy's rows may inherit from this project, so its captured
+    // rules are refilled now that this project's own are registered.
+    captureJudgingRules()
+  }
+
+  /**
+   * Refills the judging rules of every report that merges another policy's rows, from the chain
+   * each of them inherits. Run over all of them rather than the one whose rules changed, as a rule
+   * declared anywhere in the tree reaches every report below it, and the projects are registered in
+   * whatever order they are configured.
+   */
+  private fun captureJudgingRules() {
+    byPath.forEach { (path, parameters) ->
+      if (parameters.judgesAnotherPolicy) {
+        // Taken from the chain unresolved, so that a report inheriting no rule at all keeps a null
+        // rather than a default the configuration cache would then have to serialize.
+        val chain = chainOf(path)
+        parameters.judgingResolutionStrategy =
+          chain.firstOrNull { it.resolutionStrategySet }?.resolutionStrategy
+        parameters.judgingFilterDeclaredConfigurations =
+          chain.firstNotNullOfOrNull { it.filterDeclaredConfigurations }
+        parameters.judgingPreReleaseVersionIf = chain.firstNotNullOfOrNull { it.preReleaseVersionIf }
+        parameters.judgingExemptFromBuiltInChecksIf =
+          chain.firstNotNullOfOrNull { it.exemptFromBuiltInChecksIf }
+      }
     }
   }
 
@@ -356,6 +383,7 @@ internal abstract class DependencyUpdatesParametersService :
         parameters.judgesAnotherPolicy = true
       }
     }
+    captureJudgingRules()
   }
 
   /** Whether the first path is a project beneath the second. */
@@ -937,6 +965,7 @@ private fun statusesOf(
   skipped: MutableList<SkippedInfo>,
   onDeprecatedBoundRead: () -> Unit,
   candidates: MutableSet<String>,
+  settingsConfigurations: ConfigurationContainer? = null,
 ): List<PartialStatus> {
   if (configurations.isEmpty()) {
     return emptyList()
@@ -950,6 +979,7 @@ private fun statusesOf(
       rejectPreReleases = parameters.rejectPreReleases,
       preReleaseVersionIf = parameters.preReleaseVersionIf,
       exemptFromBuiltInChecksIf = parameters.exemptFromBuiltInChecksIf,
+      settingsConfigurations = settingsConfigurations,
       onDeprecatedBoundRead = onDeprecatedBoundRead,
     )
   // Snapshotted for every configuration before the first resolution, as resolving one
