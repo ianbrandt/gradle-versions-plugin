@@ -84,6 +84,19 @@ internal fun holdsKotlinScript(value: Any?): Boolean {
     if (isScript == true) {
       return true
     }
+    // A collection is walked through its elements rather than through its fields: an ArrayList's
+    // element array declares no fields of its own, so a script held in an element would be missed.
+    runCatching {
+      when (captured) {
+        is Array<*> -> captured.forEach { element -> element?.let(pending::add) }
+        is Iterable<*> -> captured.forEach { element -> element?.let(pending::add) }
+        is Map<*, *> ->
+          captured.forEach { (key, value) ->
+            key?.let(pending::add)
+            value?.let(pending::add)
+          }
+      }
+    }
     // Only the fields the class declares are read, which is where a lambda's captured values sit.
     // Walking the inherited ones as well would reach a Groovy closure's owner.
     for (field in runCatching { captured.javaClass.declaredFields }.getOrDefault(emptyArray())) {

@@ -14,6 +14,9 @@ import spock.lang.Unroll
 
 @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1004')
 final class CompositeBuildSpec extends Specification {
+  /** A Kotlin lambda calling a function the build script declares, so that it holds the script. */
+  private static final String REJECTOR = '{ v: String -> v.isRejected() }'
+
   @Rule final TemporaryFolder testProjectDir = new TemporaryFolder()
   private String classpathString
   private String mavenRepoUrl
@@ -1958,7 +1961,7 @@ final class CompositeBuildSpec extends Specification {
    * The same composite with a Kotlin build script, where the rule is written as the README's recipe
    * is: a call to a function the script declares. Such a call binds the script into the lambda.
    */
-  private void kotlinJudgedComposite(String rule) {
+  private void kotlinJudgedComposite(String rule, String locals = 'val rejected = "3.1"') {
     testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
     testProjectDir.newFile('build.gradle.kts') <<
       """
@@ -1979,7 +1982,7 @@ final class CompositeBuildSpec extends Specification {
         }
 
         tasks.named("dependencyUpdates", DependencyUpdatesTask::class.java) {
-          val rejected = "3.1"
+          ${locals}
           rejectVersionIf {
             ${rule}
           }
@@ -2109,6 +2112,28 @@ final class CompositeBuildSpec extends Specification {
     !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
     result.output.contains('Configuration cache entry discarded')
     result.output.contains('rejectVersionIf')
+  }
+
+  @Unroll
+  def "A Kotlin rule reaching its build script through #holder still judges the report"() {
+    given: 'the script bound into the lambda through a collection rather than through a field of it'
+    kotlinJudgedComposite(rule, locals)
+
+    when:
+    def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the entry is discarded as it is for a rule that holds the script directly'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+    result.output.contains('reads a declaration from the build script')
+    result.output.contains('Configuration cache entry discarded')
+
+    where:
+    holder             | locals                                        | rule
+    'a list element'   | "val held = mutableListOf($REJECTOR)"         | 'held[0](candidate.version)'
+    'an array element' | "val held = arrayOf($REJECTOR)"               | 'held[0](candidate.version)'
+    'a map value'      | "val held = mutableMapOf(\"a\" to $REJECTOR)" | 'held.getValue("a")(candidate.version)'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
