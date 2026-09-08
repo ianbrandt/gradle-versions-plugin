@@ -74,7 +74,9 @@ internal class CollectingComponentSelectionRules : ComponentSelectionRules {
   ): Boolean =
     when (moduleId) {
       null -> true
-      is String -> moduleId == "$group:$name"
+      // A CharSequence rather than a String: a Groovy script interpolating the notation passes a
+      // GString, which Gradle's own notation parser accepts and an `is String` test does not.
+      is CharSequence -> moduleId.toString() == "$group:$name"
       is ModuleIdentifier -> moduleId.group == group && moduleId.name == name
       else -> false
     }

@@ -10,6 +10,7 @@ import org.gradle.api.logging.Logging
 import org.gradle.api.specs.Spec
 import spock.lang.Issue
 import spock.lang.Specification
+import spock.lang.Unroll
 
 /**
  * A specification for the judge that replays the aggregating build's own component-selection
@@ -176,6 +177,33 @@ final class JudgeSpec extends Specification {
     then: 'only the targeted module is capped; the one that merely shares its prefix is untouched'
     judged.find { it.name == 'core' }.latestVersion == '1.0'
     judged.find { it.name == 'core-ext' }.latestVersion == '2.0'
+  }
+
+  @Unroll
+  def 'Matches a module notation written as #label'() {
+    given: 'a rule targeting one module, its notation spelled the way a build script may spell it'
+    def core = statusOf('com.example', 'core', '1.0', '2.0')
+    def candidates = [':': ['com.example:core:2.0', 'com.example:core:1.0']]
+    def rejectCore = { ResolutionStrategyWithCurrent strategy ->
+      strategy.componentSelection { rules ->
+        rules.withModule(notation) { selection ->
+          if (selection.candidate.version == '2.0') {
+            selection.reject('rejected by the test rule')
+          }
+        }
+      }
+    } as Action<ResolutionStrategyWithCurrent>
+
+    when:
+    def judged = judge([core], candidates, rejectCore)
+
+    then: 'an interpolated notation is a GString rather than a String, and Gradle accepts either'
+    judged[0].latestVersion == '1.0'
+
+    where:
+    label       | notation
+    'a String'  | 'com.example:core'
+    'a GString' | "${'com.example'}:core"
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
