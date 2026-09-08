@@ -349,7 +349,15 @@ internal abstract class DependencyUpdatesParametersService :
    * each of them inherits. Run over all of them rather than the one whose rules changed, as a rule
    * declared anywhere in the tree reaches every report below it, and the projects are registered in
    * whatever order they are configured.
+   *
+   * Serialized, as this reads a rule of one project and writes the capture of another while the
+   * projects that declare them are configured in parallel under isolated projects. A read of the
+   * rule field that straddled a sibling's write to it would otherwise land last and leave the
+   * capture holding the stale value, which no warning would report. Each rule setter runs its own
+   * capture after assigning the field, so once the captures cannot overlap the last one to run is
+   * always the one that follows the last assignment.
    */
+  @Synchronized
   private fun captureJudgingRules() {
     byPath.forEach { (path, parameters) ->
       if (parameters.judgesAnotherPolicy) {

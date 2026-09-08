@@ -2018,9 +2018,9 @@ An included build merged into the report (see [Composite
 builds](#composite-builds)) is covered by most of the same settings, applied at
 the report rather than inherited. `rejectVersionIf`, `resolutionStrategy`,
 `rejectPreReleases`, `preReleaseVersionIf`, `exemptFromBuiltInChecksIf` and
-`filterDeclaredConfigurations` set on the task that writes the report are
-applied to the entries merged from it, so a composite is configured in one
-place, as a multi-project build is. The settings that control what is resolved
+`filterDeclaredConfigurations` set on, or inherited by, the task that writes the
+report are applied to the entries merged from it, so a composite is configured
+in one place, as a multi-project build is. The settings that control what is resolved
 are the exception: `revision`, `filterConfigurations`, `checkConstraints`,
 `checkBuildEnvironmentConstraints` and `rejectOutOfBounds` are read in the build
 that resolves, and are declared in each included build.
