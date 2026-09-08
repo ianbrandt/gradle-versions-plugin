@@ -10,6 +10,7 @@ import org.gradle.api.artifacts.VersionConstraint
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ModuleComponentSelector
 import org.gradle.api.internal.artifacts.dependencies.DefaultImmutableVersionConstraint
+import java.util.Objects
 
 // The parameter list is the one 0.59.0 released. A default argument compiles callers against a
 // synthetic constructor with an argument mask, so adding a parameter here, even a defaulted one,
@@ -193,13 +194,7 @@ class Coordinate(
     return true
   }
 
-  override fun hashCode(): Int {
-    var result = groupId.hashCode()
-    result = 31 * result + artifactId.hashCode()
-    result = 31 * result + version.hashCode()
-    result = 31 * result + divergentLatest.hashCode()
-    return result
-  }
+  override fun hashCode(): Int = Objects.hash(groupId, artifactId, version, divergentLatest)
 
   /** A version constraint from a consumed platform, paired with the platform it came from. */
   internal data class PlatformConstraint(
