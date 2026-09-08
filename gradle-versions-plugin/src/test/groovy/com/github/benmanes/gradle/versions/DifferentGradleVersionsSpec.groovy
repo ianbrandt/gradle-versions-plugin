@@ -251,7 +251,12 @@ final class DifferentGradleVersionsSpec extends Specification {
         """.stripIndent()
 
     when:
+    // The candidate version's metadata cannot be in the user's verification file by construction,
+    // so the lookups must be exempt from verification. Gradle 8.7 and later re-report a failure
+    // recorded during those lookups at the next artifact access, which is the plugin's own
+    // aggregation configuration.
     def result = GradleRunner.create()
+      .withGradleVersion(GradleVersions.CURRENT)
       .withProjectDir(testProjectDir.root)
       .withArguments('dependencyUpdates')
       .build()
