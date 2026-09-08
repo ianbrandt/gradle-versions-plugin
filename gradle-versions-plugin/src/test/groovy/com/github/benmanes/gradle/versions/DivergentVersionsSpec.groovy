@@ -7,6 +7,7 @@ import groovy.xml.XmlParser
 import org.gradle.testkit.runner.GradleRunner
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
+import spock.lang.IgnoreIf
 import spock.lang.Issue
 import spock.lang.Specification
 
@@ -429,6 +430,8 @@ final class DivergentVersionsSpec extends Specification {
     hit.output.contains('com.google.inject:guice')
   }
 
+  // Gradle 9 requires JVM 17.
+  @IgnoreIf({ data.gradleVersion.startsWith('9') && !jvm.java17Compatible })
   def 'Reports every row when a rule reading a script object reaches the judge under Gradle #gradleVersion'() {
     given: 'the rule shape an aggregating report is documented to support, plus a subproject rule'
     writeSplitBuild(
