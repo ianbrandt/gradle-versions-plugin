@@ -2014,9 +2014,16 @@ hierarchy whose task set them. Configuring the root project's task therefore
 covers every project, unless a subproject configures its own (see [Task
 properties](#task-properties)).
 
-This inheritance runs within one build. None of it reaches an included build;
-the report that merges its entries applies its own settings to them instead (see
-[Composite builds](#composite-builds)).
+An included build merged into the report (see [Composite
+builds](#composite-builds)) is covered by most of the same settings, applied at
+the report rather than inherited. `rejectVersionIf`, `resolutionStrategy`,
+`rejectPreReleases`, `preReleaseVersionIf`, `exemptFromBuiltInChecksIf` and
+`filterDeclaredConfigurations` set on the task that writes the report are
+applied to the entries merged from it, so a composite is configured in one
+place, as a multi-project build is. The settings that control what is resolved
+are the exception: `revision`, `filterConfigurations`, `checkConstraints`,
+`checkBuildEnvironmentConstraints` and `rejectOutOfBounds` are read in the build
+that resolves, and are declared in each included build.
 
 #### Composite builds
 
@@ -2146,8 +2153,9 @@ both builds' rules, and no resolution proved that a usable variant of it exists.
 The version accepted in the producing build is the one that build resolved.
 
 The settings that control what is resolved apply in the build that resolves it:
-`filterConfigurations`, `checkConstraints`, `checkBuildEnvironmentConstraints`,
-and `revision`. Declare those in each included build. The Gradle update check is
+`revision`, `filterConfigurations`, `checkConstraints`,
+`checkBuildEnvironmentConstraints` and `rejectOutOfBounds`. Declare those in
+each included build. The Gradle update check is
 read from the report being asked for, so `checkForGradleUpdate` and
 `gradleReleaseChannel` set in a merged build do not reach it.
 
