@@ -12,6 +12,7 @@ import org.gradle.api.Action
 import org.gradle.api.Project
 import org.gradle.api.artifacts.ComponentSelection
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.ConfigurationContainer
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.DependencyConstraint
 import org.gradle.api.artifacts.ExternalDependency
@@ -55,6 +56,12 @@ class Resolver internal constructor(
   preReleaseVersionIf: Spec<String>?,
   /** The candidates exempted from both built-in checks in the build, null when none is configured. */
   exemptFromBuiltInChecksIf: ComponentFilter?,
+  /**
+   * The container that holds the settings script's classpath, which belongs to no project, so that
+   * the recording walk detaches from where the configuration came from. Null wherever it could not
+   * hold what is being resolved, which is every pass but the script classpaths of the root.
+   */
+  private val settingsConfigurations: ConfigurationContainer?,
   /** Called when a rule reads the deprecated bound, so the warning is printed once per project. */
   private val onDeprecatedBoundRead: () -> Unit,
 ) {
@@ -74,6 +81,7 @@ class Resolver internal constructor(
     rejectPreReleases = true,
     preReleaseVersionIf = null,
     exemptFromBuiltInChecksIf = null,
+    settingsConfigurations = null,
     onDeprecatedBoundRead = deprecatedBoundWarning(project.logger),
   )
 
@@ -319,15 +327,7 @@ class Resolver internal constructor(
     configuration: Configuration,
     current: CurrentCoordinates,
   ) {
-    // Detached from the container the configuration itself belongs to, as a buildscript's
-    // classpath resolves against the buildscript's repositories rather than the project's.
-    val container =
-      if (project.buildscript.configurations.contains(configuration)) {
-        project.buildscript.configurations
-      } else {
-        project.configurations
-      }
-    val copy = container.detachedConfiguration().setTransitive(false)
+    val copy = containerOf(configuration).detachedConfiguration().setTransitive(false)
     if (asBoolean(
         getMetaClass(copy.resolutionStrategy)
           .hasProperty(copy.resolutionStrategy, "failOnDynamicVersions"),
@@ -340,6 +340,26 @@ class Resolver internal constructor(
     copy.resolutionStrategy.deactivateDependencyLocking()
     recordCandidates(copy)
     copy.incoming.resolutionResult.root
+  }
+
+  /**
+   * Returns the container that holds the configuration, which the recording walk detaches from as a
+   * buildscript's classpath resolves against the buildscript's repositories rather than the
+   * project's. Matched by identity rather than by [ConfigurationContainer.contains], which matches
+   * by name: a settings script's classpath and a project buildscript's are both named `classpath`,
+   * so a name match sends the settings one to the project's own buildscript repositories, which a
+   * build that declares its plugins through `pluginManagement` leaves empty.
+   */
+  private fun containerOf(configuration: Configuration): ConfigurationContainer {
+    val settings = settingsConfigurations
+    if (settings != null && settings.any { it === configuration }) {
+      return settings
+    }
+    return if (project.buildscript.configurations.any { it === configuration }) {
+      project.buildscript.configurations
+    } else {
+      project.configurations
+    }
   }
 
   /** Returns a variant of the provided dependency used for querying the latest version.  */

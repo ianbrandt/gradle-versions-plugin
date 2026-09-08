@@ -8,6 +8,7 @@ import org.gradle.api.Action
 import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.ConfigurationContainer
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.ExternalModuleDependency
 import org.gradle.api.artifacts.ModuleDependency
@@ -363,12 +364,15 @@ internal abstract class DependencyUpdatesParametersService :
     ancestor: String,
   ): Boolean = path != ancestor && (ancestor == ":" || path.startsWith("$ancestor:"))
 
+  /** Returns the settings of the project and of each of its ancestors, nearest first. */
+  private fun chainOf(path: String): List<DependencyUpdatesParameters> =
+    generateSequence(path) { if (it == ":") null else it.substringBeforeLast(':').ifEmpty { ":" } }
+      .mapNotNull { byPath[it] }
+      .toList()
+
   /** Returns the effective settings, taking each property from the nearest ancestor that set it. */
   fun resolve(path: String): ResolvedParameters {
-    val chain =
-      generateSequence(path) { if (it == ":") null else it.substringBeforeLast(':').ifEmpty { ":" } }
-        .mapNotNull { byPath[it] }
-        .toList()
+    val chain = chainOf(path)
     val revision =
       settingOf(
         fromCommandLine = chain.firstNotNullOfOrNull { it.revisionFromCommandLine },
@@ -687,7 +691,7 @@ internal fun registerProducer(project: Project): TaskProvider<DependencyUpdatesP
 /** Publishes the settings script's classpath to the project that accumulates the report. */
 internal fun publishSettingsClasspath(
   gradle: Gradle,
-  configurations: List<Configuration>,
+  configurations: ConfigurationContainer,
 ) {
   parametersService(gradle).get().settingsConfigurations = configurations
 }
@@ -769,12 +773,12 @@ private fun registerProducer(
           // which appear in no project's buildscript. It is reported once, from the project that
           // accumulates.
           // https://github.com/ben-manes/gradle-versions-plugin/issues/367
-          val settingsConfigurations =
+          val settingsContainer =
             // Compared by path rather than to project.rootProject, which isolated projects forbids.
             if (project.path == ":") {
               service.get().settingsConfigurations
             } else {
-              emptyList()
+              null
             }
           // A project that declares no buildscript repository has nothing to resolve its script
           // classpath against, so querying it can only fail. Gradle constrains every classpath to
@@ -788,7 +792,7 @@ private fun registerProducer(
               project.buildscript.configurations.toList()
             }
           val buildscriptConfigurations =
-            (ownConfigurations + settingsConfigurations)
+            (ownConfigurations + settingsContainer.orEmpty())
               .filter { it.isCanBeResolved }
 
           val skipped = mutableListOf<SkippedInfo>()
@@ -828,6 +832,7 @@ private fun registerProducer(
               skipped,
               onDeprecatedBoundRead,
               candidates,
+              settingsContainer,
             )
           // Warned once the whole project's configurations and script classpaths are known, as the
           // two calls above share this list and a configuration skipped by each would otherwise be

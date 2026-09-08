@@ -2,6 +2,7 @@ package com.github.benmanes.gradle.versions
 
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
+import groovy.json.JsonSlurper
 import org.gradle.testkit.runner.GradleRunner
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
@@ -134,6 +135,35 @@ final class SettingsClasspathSpec extends Specification {
     hit.task(':dependencyUpdates').outcome == SUCCESS
     hit.output.contains('Configuration cache entry reused')
     hit.output.contains(expected)
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'Records the candidates of a plugin the settings script declares'() {
+    given: 'the plugin is reachable from pluginManagement, and no project declares a buildscript repository'
+    settings(
+      """
+        pluginManagement {
+          repositories {
+            maven {
+              url = '${mavenRepoUrl}'
+            }
+          }
+        }
+
+        plugins {
+          id 'io.github.ben-manes.versions.settings'
+          id 'com.example.settings-demo' version '1.0' apply false
+        }
+      """)
+
+    when:
+    def result = run()
+
+    then: 'the recording walk resolves against the settings repositories rather than the project ones'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    def partials = new File(testProjectDir.root, 'build/dependencyUpdates/partials').listFiles()
+    partials.collect { new JsonSlurper().parse(it).candidates }.flatten().contains(
+      'com.example.settings-demo:com.example.settings-demo.gradle.plugin:2.0')
   }
 
   def 'Reports the settings plugins once in a multi-project build'() {
