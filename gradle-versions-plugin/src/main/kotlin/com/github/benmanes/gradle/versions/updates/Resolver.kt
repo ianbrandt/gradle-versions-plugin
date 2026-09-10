@@ -920,8 +920,17 @@ class Resolver internal constructor(
       val copy = project.configurations.detachedConfiguration(pom).setTransitive(false)
       copy.resolutionStrategy.disableDependencyVerification()
 
+      // Resolved leniently, so that a module published without a pom is not an error. The
+      // failures are logged rather than dropped, as a repository that cannot be reached would
+      // otherwise read the same as a module that has no pom to find.
+      val artifacts = copy.incoming.artifactView { it.isLenient = true }.artifacts
+      for (failure in artifacts.failures) {
+        project.logger.info("Failed to resolve the pom of $id", failure)
+      }
+
       // empty for gradle plugins, a single pom for normal dependencies
-      for (file in copy.incoming.artifactView { it.isLenient = true }.files) {
+      for (artifact in artifacts) {
+        val file = artifact.file
         project.logger.info("Pom file for $id is $file")
         var url = interpolate(getUrlFromPom(file), id)
         if (!url.isNullOrEmpty()) {
