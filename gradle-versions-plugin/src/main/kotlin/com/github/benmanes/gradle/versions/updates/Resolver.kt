@@ -915,8 +915,18 @@ class Resolver internal constructor(
       // An ArtifactResolutionQuery cannot be exempted from dependency verification, as there is
       // no resolution strategy on it, and the candidate version is never in the build's metadata.
       // The artifact-only notation is what keeps an included build that substitutes the module
-      // from being built to produce its jar.
-      val pom = project.dependencies.create("${id.group}:${id.name}:${id.version}@pom")
+      // from being built to produce its jar. The coordinates are passed as fields rather than
+      // interpolated into a string, which an '@' in the version would be read as splitting.
+      val pom =
+        project.dependencyFactory
+          .create(id.group, id.name, id.version)
+          .apply {
+            artifact {
+              it.name = id.name
+              it.type = "pom"
+              it.extension = "pom"
+            }
+          }
       val copy = project.configurations.detachedConfiguration(pom).setTransitive(false)
       copy.resolutionStrategy.disableDependencyVerification()
 
