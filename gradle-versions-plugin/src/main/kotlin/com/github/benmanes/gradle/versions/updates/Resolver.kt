@@ -262,6 +262,7 @@ class Resolver internal constructor(
     // The copy inherits activated dependency locking but has no lock state of its own.
     copy.resolutionStrategy.deactivateDependencyLocking()
 
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
     // The candidate versions cannot be in the build's verification metadata, as they are the newer
     // versions being searched for.
     copy.resolutionStrategy.disableDependencyVerification()
@@ -519,6 +520,8 @@ class Resolver internal constructor(
 
     // https://github.com/ben-manes/gradle-versions-plugin/issues/781
     copy.resolutionStrategy.deactivateDependencyLocking()
+
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
     copy.resolutionStrategy.disableDependencyVerification()
 
     disableAutoTargetJvm(copy)
@@ -663,6 +666,8 @@ class Resolver internal constructor(
     val copy = configuration.copyRecursive().setTransitive(true)
     // https://github.com/ben-manes/gradle-versions-plugin/issues/781
     copy.resolutionStrategy.deactivateDependencyLocking()
+
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
     copy.resolutionStrategy.disableDependencyVerification()
     disableAutoTargetJvm(copy)
     copy.dependencies.clear()
@@ -912,6 +917,7 @@ class Resolver internal constructor(
 
   private fun resolveProjectUrl(id: ModuleVersionIdentifier): String? {
     return try {
+      // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
       // An ArtifactResolutionQuery cannot be exempted from dependency verification, as there is
       // no resolution strategy on it, and the candidate version is never in the build's metadata.
       // The artifact-only notation is what keeps an included build that substitutes the module
