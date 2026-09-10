@@ -1033,8 +1033,8 @@ tasks.named("dependencyUpdates").configure {
 
 A rule runs a second time as the report is written, so that every row in the
 report is checked against it and not only the rows this build resolved.
-`metadata` and `getDescriptor` answer null there: only the candidate versions
-each build found are recorded, not the modules behind them, and the repositories
+`metadata` and `getDescriptor` are null there: only the candidate versions each
+build found are recorded, not the modules behind them, and the repositories
 another build read cannot be queried from this one. A rejection a rule makes
 after reading either is ignored at that second pass, and the row stays at the
 version the build that resolved it accepted rather than being reported
@@ -2106,16 +2106,16 @@ dependencies {
 
 </details>
 
-Two Gradle rules decide whether a coordinate is substituted at all. A build
+Whether a coordinate is substituted at all rests on two Gradle rules. A build
 included only under `pluginManagement` is not substituted from the including
-build's dependency graph, so the aggregating settings need a plain
-`includeBuild` for it as well. An `includeBuild` that declares a
+build's dependency graph, so declare a plain `includeBuild` for it in the
+aggregating settings as well. An `includeBuild` that declares a
 `dependencySubstitution` block keeps only the rules declared in it, the
 automatic `group:name` rule included, so a rule for the aggregated coordinates
 has to be declared there too. A coordinate substituted onto no project stays an
-external module and none of its entries are merged; a warning names it, rather
-than the build failing, so an entry left over from a build that is no longer
-included does not break the build.
+external module and none of its entries are merged; it is printed in a warning
+rather than failing the build, so an entry left over from a build that is no
+longer included does not break the build.
 
 The task that writes the report applies its settings to every entry in it,
 including the entries an included build resolved and the entries its subprojects

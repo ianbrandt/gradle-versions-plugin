@@ -214,7 +214,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
     when:
     def result = run()
 
-    then: 'one for the resolutions, which share a warning, and one for the report that replays them'
+    then: 'one warning for the resolutions together, and one for the report that replays them'
     result.output.count('satisfiesDeclaredBound is deprecated') == 2
 
     and: 'the second is the report replaying the same rule, not a second resolution'
@@ -599,7 +599,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/755')
   def 'a merged script classpath row is bounded by the range its own build declared'() {
-    given: 'an included build declaring a classpath range, merged into a report whose rule bounds it'
+    given: 'an included build declaring a classpath range, merged into a report with a rule bounding it'
     testProjectDir.newFile('settings.gradle') <<
       """
         rootProject.name = 'root'

@@ -146,13 +146,13 @@ final class ReportRulesSpec extends Specification {
     when:
     def applied = applyRules([status], candidates, strategy)
 
-    then: 'the ceiling (3.0, the row\'s own baked verdict) names the reason, not 2.0 or 1.0'
+    then: 'the reason reported is the ceiling\'s (3.0, the row\'s own baked verdict), not 2.0\'s or 1.0\'s'
     applied[0].unresolved.failureText == 'rejected 3.0'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def 'Matches recorded candidates by module, not by prefix'() {
-    given: 'two modules whose names share a prefix, only one of which the rule targets'
+    given: 'two modules with a common name prefix, only one of them targeted by the rule'
     def core = statusOf('com.example', 'core', '1.0', '2.0')
     def coreExt = statusOf('com.example', 'core-ext', '1.0', '2.0')
     def candidates = [
@@ -174,7 +174,7 @@ final class ReportRulesSpec extends Specification {
     when:
     def applied = applyRules([core, coreExt], candidates, rejectCoreOnly)
 
-    then: 'only the targeted module is capped; the one that merely shares its prefix is untouched'
+    then: 'only the targeted module is capped; the one with the same prefix is untouched'
     applied.find { it.name == 'core' }.latestVersion == '1.0'
     applied.find { it.name == 'core-ext' }.latestVersion == '2.0'
   }
@@ -279,7 +279,7 @@ final class ReportRulesSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def 'A v1 partial with no candidates list leaves every row at its baked verdict'() {
-    given: 'a partial from an older release, whose projectPath has no entry in the candidates map at all'
+    given: 'a partial from an older release, with no entry for its projectPath in the candidates map'
     def status = statusOf('com.example', 'widget', '1.0', '2.0')
     def candidates = [:]
     def rejectAll = { ResolutionStrategyWithCurrent strategy ->
@@ -296,7 +296,7 @@ final class ReportRulesSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "Candidates recorded by one project never decide another project's row"() {
+  def "Candidates recorded by one project are never applied to another project's row"() {
     given: 'two projects declaring the same module; only one recorded a candidate list at all'
     def rowInA = statusOf('com.example', 'widget', '1.0', '2.0', ':a')
     def rowInB = statusOf('com.example', 'widget', '1.0', '2.0', ':b')
@@ -339,7 +339,7 @@ final class ReportRulesSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
   def 'Shows no integration candidate below the ceiling under a milestone revision'() {
-    given: 'a listing whose snapshot sits between the rejected ceiling and the release below it'
+    given: 'a listing with a snapshot between the rejected ceiling and the release below it'
     def status = statusOf('com.example', 'widget', '1.0', '3.0')
     def candidates = [
       ':': ['com.example:widget:3.0', 'com.example:widget:2.5-SNAPSHOT', 'com.example:widget:2.0'],
@@ -348,7 +348,7 @@ final class ReportRulesSpec extends Specification {
     when:
     def applied = applyRules([status], candidates, rejecting('3.0'), 'milestone')
 
-    then: 'the walk steps over the snapshot that a milestone report may not offer'
+    then: 'the walk steps over the snapshot a milestone report may not show'
     applied[0].latestVersion == '2.0'
   }
 
@@ -424,7 +424,7 @@ final class ReportRulesSpec extends Specification {
     when:
     def applied = applyRules([status], candidates, rejectAll, 'release')
 
-    then: 'the exhausted walk names the ceiling\'s own rejection reason'
+    then: 'the exhausted walk reports the ceiling\'s own rejection reason'
     applied[0].latestVersion == 'none'
     applied[0].unresolved.selectorVersion == '2.0-SNAPSHOT'
     applied[0].unresolved.failureText == 'rejected by the test rule'
@@ -466,7 +466,7 @@ final class ReportRulesSpec extends Specification {
   }
 
   def "The report's pre-release check rejects the ceiling its producer accepted"() {
-    given: 'a row whose producer baked a pre-release, the report checking pre-releases itself'
+    given: 'a row with a pre-release baked by its producer, the report checking pre-releases itself'
     def statuses = [statusOf('com.probe', 'unstable-ceiling', '1.0', '3.0-Beta1')]
     def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0',
                             'com.probe:unstable-ceiling:1.0']]
@@ -480,7 +480,7 @@ final class ReportRulesSpec extends Specification {
   }
 
   def "The report's own convention is part of the check it applies"() {
-    given: 'versions no built-in marker covers, and a convention that names them'
+    given: 'versions no built-in marker covers, and a convention matching them'
     def statuses = [statusOf('com.example', 'prerelease-flagged', '1.0', '3.0-flagged')]
     def candidates = [':': ['com.example:prerelease-flagged:3.0-flagged',
                             'com.example:prerelease-flagged:2.0-flagged',
@@ -509,7 +509,7 @@ final class ReportRulesSpec extends Specification {
   }
 
   def 'An exemption answering on the absent metadata leaves the row as its producer reported it'() {
-    given: 'an exemption that reads the metadata a recorded candidate never carries'
+    given: 'an exemption that reads the metadata absent from a recorded candidate'
     def statuses = [statusOf('com.probe', 'unstable-ceiling', '1.0', '3.0-Beta1')]
     def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0',
                             'com.probe:unstable-ceiling:1.0']]

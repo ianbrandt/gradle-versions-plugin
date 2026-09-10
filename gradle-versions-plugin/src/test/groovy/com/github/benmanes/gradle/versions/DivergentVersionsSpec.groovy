@@ -402,7 +402,7 @@ final class DivergentVersionsSpec extends Specification {
   }
 
   def 'Reports every row when a rule the cache could not store throws at the report'() {
-    given: 'a root rule calling a method its own script declares, which the entry cannot carry'
+    given: 'a root rule calling a method declared in its own script, which cannot be stored in the entry'
     writeSplitBuild([':': 'false', 'app': 'false', 'lib': 'false'])
     new File(testProjectDir.root, 'build.gradle') <<
       """
@@ -487,7 +487,7 @@ final class DivergentVersionsSpec extends Specification {
   }
 
   def 'Collapses the split under the cache when the subprojects are configured before the root'() {
-    given: 'the rules of both subprojects declared before the root configures its own task'
+    given: "the rules of both subprojects declared before the root's own task is configured"
     testProjectDir.newFile('settings.gradle') << "include 'app', 'lib'"
     testProjectDir.newFile('build.gradle') <<
       """

@@ -169,8 +169,8 @@ internal class ReportRules(
         }
         continue
       }
-      // An exemption that decided on the metadata absent from the record answered about the record
-      // rather than the candidate, so the row is left as the build that resolved it reported it, as
+      // An exemption evaluated on the metadata absent from the record answered about the record
+      // rather than about the candidate, so the row is left as the build that resolved it reported it, as
       // it is for a rule that rejects the same way.
       if (shim.undecided) {
         return status
@@ -248,7 +248,7 @@ internal class ReportRules(
     }
     // Read through the record rather than called, so an exemption that reads the metadata absent
     // from the record marks the candidate undecided instead of answering. The caller leaves such a
-    // row alone; leaving it out here on an answer the predicate could not give would drop an
+    // row alone; leaving it out here on an answer no predicate could reach would drop an
     // upgrade the producer reported.
     val exempt = shim.evaluate { isExempt(selection) }
     return !shim.undecided && !exempt

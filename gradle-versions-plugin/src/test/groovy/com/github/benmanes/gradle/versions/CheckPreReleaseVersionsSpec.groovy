@@ -566,7 +566,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
   }
 
   def 'an exemption declared on a subproject stands in the aggregated report'() {
-    given: 'the subproject exempts the module, and the root task sets nothing of its own'
+    given: 'the subproject exempts the module, with nothing configured on the root task'
     writeMultiProjectBuild('com.example:prerelease-widget:1.0', '', true)
     new File(testProjectDir.root, 'app/build.gradle') <<
       """
@@ -578,7 +578,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     when:
     def report = runReport()
 
-    then: 'the aggregate holds the row the subproject resolved, exemption included'
+    then: 'the aggregated report shows the row the subproject resolved, exemption included'
     report.outdated.dependencies*.name == ['prerelease-widget']
     report.outdated.dependencies[0].available.milestone == '1.2-beta'
   }

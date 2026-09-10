@@ -485,9 +485,9 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
         "Left out of the dependency updates report: ${unaggregated.joinToString(", ")}, " +
           "which resolved to an external module rather than to a project. A build included only " +
           "under pluginManagement is not substituted from the including build's dependency graph, " +
-          "so its coordinates need a plain includeBuild as well, and an includeBuild that declares " +
-          "a dependencySubstitution block keeps only the rules declared in it, so it needs one for " +
-          "these coordinates.",
+          "so declare a plain includeBuild for these coordinates as well. An includeBuild that " +
+          "declares a dependencySubstitution block keeps only the rules declared in it, so declare " +
+          "a rule for these coordinates there too.",
       )
     }
     val candidatesByProjectPath = partials.associate { it.projectPath to it.candidates }

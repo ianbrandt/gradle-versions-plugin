@@ -163,7 +163,7 @@ final class ResolverCandidatesSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def 'Records a classpath candidate of a container the project does not hold'() {
+  def "Records a classpath candidate of a container outside the project's own"() {
     given: 'the module is reachable only from the other build script, as a settings plugin is'
     publishModule('com.example', 'someplugin', '1.0', ['2.0', '1.0'])
     def app = ProjectBuilder.builder().withName('root').build()
@@ -173,8 +173,8 @@ final class ResolverCandidatesSpec extends Specification {
     app.buildscript.repositories {
       maven { url repoDir.newFolder('empty-buildscript').toURI() }
     }
-    // A second project stands in for the settings script, whose classpath configuration shares the
-    // name 'classpath' with the one this project's own buildscript holds.
+    // A second project stands in for the settings script: its classpath configuration is named
+    // 'classpath', the same as the one in this project's own buildscript.
     def other = ProjectBuilder.builder().withName('other').build()
     other.buildscript.repositories {
       maven { url repo.toURI() }
@@ -187,7 +187,7 @@ final class ResolverCandidatesSpec extends Specification {
     when:
     resolver.resolve(configuration, 'integration', resolver.declaredKeys(configuration))
 
-    then: 'the walk detaches from the container that holds it rather than the one named alike'
+    then: 'the walk detaches from the container the configuration belongs to rather than the one named alike'
     resolver.candidates.contains('com.example:someplugin:2.0')
   }
 

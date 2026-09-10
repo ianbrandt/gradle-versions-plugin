@@ -248,7 +248,7 @@ final class PartialResultSpec extends Specification {
     when:
     PartialResult.fromJson(json)
 
-    then: 'the message locates the producer and names the skew, rather than advising a re-run'
+    then: 'the producer and the skew are both in the message, rather than advice to re-run'
     def e = thrown(IllegalArgumentException)
     e.message.contains(':child:sub')
     e.message.contains('newer version of the plugin')

@@ -176,7 +176,7 @@ final class IsolatedProjectsAggregationSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
   def "Keeps the root's exemption from the built-in checks on the store run and on the hit"() {
-    given: "a module the built-in check would withhold, exempted by the root, with a subproject " +
+    given: "a module the built-in check would leave out, exempted by the root, with a subproject " +
       'declaring a rule of its own so that the report reaches rows resolved under another policy'
     new File(testProjectDir.root, 'build.gradle') <<
       """

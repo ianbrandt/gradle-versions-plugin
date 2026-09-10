@@ -313,8 +313,8 @@ class Resolver internal constructor(
    * [recordCandidates] observes the complete listing rather than the prefix a first-accept walk
    * reaches. Built from a detached configuration rather than [Configuration.copyRecursive], which
    * copies the source configuration's `resolutionStrategy` as well: a build-script `force`,
-   * `eachDependency`, or `componentSelection` rule would then alter the facts before the recording
-   * rule ever sees the rejected candidates. Neither the revision filter nor the build's
+   * `eachDependency`, or `componentSelection` rule would then alter the facts before the rejected
+   * candidates ever reach the recording rule. Neither the revision filter nor the build's
    * `resolutionStrategy` is applied here: facts are policy-free by definition, and a
    * metadata-reading user predicate must never turn this walk into the far more expensive
    * per-candidate fetch those add. The

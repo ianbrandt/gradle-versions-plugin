@@ -275,7 +275,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
   }
 
   def 'Keeps an exemption from the built-in checks across the cache'() {
-    given: 'a module whose only upgrade is a pre-release, exempted from the check that leaves it out'
+    given: 'a module with a pre-release as its only upgrade, exempted from the check that leaves it out'
     new File(testProjectDir.root, 'app/build.gradle') <<
       """
         dependencies {
@@ -307,7 +307,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
     def store = run(ARGUMENTS)
     def hit = run(ARGUMENTS)
 
-    then: 'a build already on a pre-release is shown the next one, whatever the cache holds'
+    then: 'a build already on a pre-release is shown the next one, in either cache mode'
     hit.output.contains('Reusing configuration cache')
     [store, hit].every { it.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]') }
   }
