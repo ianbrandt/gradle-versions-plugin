@@ -165,7 +165,8 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Unroll
-  def 'Reports the project url of a module an included build substitutes as #projectUrl'() {
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1095')
+  def 'Reports the project url of a module #scenario'() {
     given:
     testProjectDir.newFile('settings.gradle') << settings
     testProjectDir.newFile('build.gradle') <<
@@ -205,12 +206,13 @@ final class CompositeBuildSpec extends Specification {
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
     def dependency = jsonReport.current.dependencies.find { it.name == 'interpolated-url' }
+    dependency != null
     dependency.projectUrl == projectUrl
 
     where:
-    settings                             | projectUrl
-    ''                                   | 'https://example.com/com.example/interpolated-url/1.0'
-    "includeBuild 'interpolated-url'"    | null
+    scenario                        | settings                         | projectUrl
+    'a repository publishes'        | ''                               | 'https://example.com/com.example/interpolated-url/1.0'
+    'an included build substitutes' | "includeBuild 'interpolated-url'" | null
   }
 
   @Unroll
