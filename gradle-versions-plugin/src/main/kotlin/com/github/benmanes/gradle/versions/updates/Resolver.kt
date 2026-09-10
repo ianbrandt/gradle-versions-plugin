@@ -26,7 +26,6 @@ import org.gradle.api.artifacts.repositories.FlatDirectoryArtifactRepository
 import org.gradle.api.artifacts.repositories.IvyArtifactRepository
 import org.gradle.api.artifacts.repositories.MavenArtifactRepository
 import org.gradle.api.artifacts.result.ResolutionResult
-import org.gradle.api.artifacts.result.ResolvedArtifactResult
 import org.gradle.api.artifacts.result.ResolvedComponentResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.result.ResolvedVariantResult
@@ -38,9 +37,6 @@ import org.gradle.api.attributes.java.TargetJvmVersion
 import org.gradle.api.internal.artifacts.DefaultModuleVersionIdentifier
 import org.gradle.api.internal.artifacts.dependencies.DefaultProjectDependencyConstraint
 import org.gradle.api.specs.Spec
-import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier
-import org.gradle.maven.MavenModule
-import org.gradle.maven.MavenPomArtifact
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -265,6 +261,11 @@ class Resolver internal constructor(
     // https://github.com/ben-manes/gradle-versions-plugin/issues/781
     // The copy inherits activated dependency locking but has no lock state of its own.
     copy.resolutionStrategy.deactivateDependencyLocking()
+
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
+    // The candidate versions cannot be in the build's verification metadata, as they are the newer
+    // versions being searched for.
+    copy.resolutionStrategy.disableDependencyVerification()
 
     addDeclaredBoundFilter(copy, current.coordinates)
     addPreReleaseFilter(copy, current.coordinates)
@@ -520,6 +521,9 @@ class Resolver internal constructor(
     // https://github.com/ben-manes/gradle-versions-plugin/issues/781
     copy.resolutionStrategy.deactivateDependencyLocking()
 
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
+    copy.resolutionStrategy.disableDependencyVerification()
+
     disableAutoTargetJvm(copy)
     val root = copy.incoming.resolutionResult.root
     val platformConstraints = getPlatformConstraints(copy.incoming.resolutionResult, versionedKeys(configuration))
@@ -662,6 +666,9 @@ class Resolver internal constructor(
     val copy = configuration.copyRecursive().setTransitive(true)
     // https://github.com/ben-manes/gradle-versions-plugin/issues/781
     copy.resolutionStrategy.deactivateDependencyLocking()
+
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
+    copy.resolutionStrategy.disableDependencyVerification()
     disableAutoTargetJvm(copy)
     copy.dependencies.clear()
     // Copied rather than shared, as copyRecursive does for the set cleared above: a withDependencies
@@ -910,35 +917,50 @@ class Resolver internal constructor(
 
   private fun resolveProjectUrl(id: ModuleVersionIdentifier): String? {
     return try {
-      val resolutionResult =
-        project.dependencies
-          .createArtifactResolutionQuery()
-          .forComponents(DefaultModuleComponentIdentifier.newId(id))
-          .withArtifacts(MavenModule::class.java, MavenPomArtifact::class.java)
-          .execute()
-
-      // size is 0 for gradle plugins, 1 for normal dependencies
-      for (result in resolutionResult.resolvedComponents) {
-        // size should always be 1
-        for (artifact in result.getArtifacts(MavenPomArtifact::class.java)) {
-          if (artifact is ResolvedArtifactResult) {
-            val file = artifact.file
-            project.logger.info("Pom file for $id is $file")
-            var url = interpolate(getUrlFromPom(file), id)
-            if (!url.isNullOrEmpty()) {
-              project.logger.info("Found url for $id: $url")
-              return url.trim()
-            } else {
-              val parent = getParentFromPom(file)
-              if (parent != null &&
-                "${parent.group.orEmpty()}:${parent.name}" != "org.sonatype.oss:oss-parent"
-              ) {
-                url = getProjectUrl(parent)
-                if (!url.isNullOrEmpty()) {
-                  return url.trim()
-                }
-              }
+      // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
+      // An ArtifactResolutionQuery cannot be exempted from dependency verification, as there is
+      // no resolution strategy on it, and the candidate version is never in the build's metadata.
+      // The artifact-only notation is what keeps an included build that substitutes the module
+      // from being built to produce its jar. The coordinates are passed as fields rather than
+      // interpolated into a string, which an '@' in the version would be read as splitting.
+      val pom =
+        project.dependencyFactory
+          .create(id.group, id.name, id.version)
+          .apply {
+            artifact {
+              it.name = id.name
+              it.type = "pom"
+              it.extension = "pom"
             }
+          }
+      val copy = project.configurations.detachedConfiguration(pom).setTransitive(false)
+      copy.resolutionStrategy.disableDependencyVerification()
+
+      // Resolved leniently, so that a module published without a pom is not an error. The
+      // failures are logged rather than dropped, as a repository that cannot be reached would
+      // otherwise read the same as a module that has no pom to find.
+      val artifacts = copy.incoming.artifactView { it.isLenient = true }.artifacts
+      for (failure in artifacts.failures) {
+        project.logger.info("Failed to resolve the pom of $id", failure)
+      }
+
+      // empty for gradle plugins, a single pom for normal dependencies
+      for (artifact in artifacts) {
+        val file = artifact.file
+        project.logger.info("Pom file for $id is $file")
+        var url = interpolate(getUrlFromPom(file), id)
+        if (!url.isNullOrEmpty()) {
+          project.logger.info("Found url for $id: $url")
+          return url.trim()
+        }
+
+        val parent = getParentFromPom(file)
+        if (parent != null &&
+          "${parent.group.orEmpty()}:${parent.name}" != "org.sonatype.oss:oss-parent"
+        ) {
+          url = getProjectUrl(parent)
+          if (!url.isNullOrEmpty()) {
+            return url.trim()
           }
         }
       }
