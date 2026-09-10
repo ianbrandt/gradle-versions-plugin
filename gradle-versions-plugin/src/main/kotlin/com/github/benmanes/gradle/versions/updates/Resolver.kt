@@ -1262,7 +1262,7 @@ internal fun configurationsOf(
  * Warns once, however many rules read the deprecated bound across the resolutions or the report
  * passes it is given to, since a rule is evaluated for every candidate of every configuration and
  * script classpath. Given the logger rather than the project so that the report can warn too: the
- * task that judges runs without a project on a restored configuration cache entry.
+ * task that writes the report runs without a project on a restored configuration cache entry.
  */
 internal fun deprecatedBoundWarning(logger: Logger): () -> Unit {
   val warned = AtomicBoolean()

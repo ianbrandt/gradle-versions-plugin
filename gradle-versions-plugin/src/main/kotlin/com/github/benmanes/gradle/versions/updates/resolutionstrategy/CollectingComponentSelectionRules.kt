@@ -11,8 +11,9 @@ import org.gradle.model.internal.type.ModelType
 /**
  * Harvests the actions a [ComponentSelectionRulesWithCurrent] registers, in registration order,
  * rather than running them against a live Gradle resolution. Fed to [ResolutionStrategyWithCurrent]
- * as the component-selection delegate of the internal constructor the judge uses, so the build's
- * `resolutionStrategy` action runs exactly once and every registered rule is replayable afterwards.
+ * as the component-selection delegate of the internal constructor `ReportRules` uses, so the
+ * build's `resolutionStrategy` action runs exactly once and every registered rule is replayable
+ * afterwards.
  *
  * Only the [Action]-typed overloads ever run in practice: [ComponentSelectionRulesWithCurrent]'s
  * `Closure` and rule-source overloads already reduce to a call on the `Action` overload before

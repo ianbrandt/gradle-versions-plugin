@@ -255,7 +255,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def 'Keeps a rejectVersionIf that reads the build script out of the cache entry'() {
     given: 'a predicate reading a script object, which a serialized closure is not allowed to do'
-    // Read before the version is compared, so that every candidate the judge would replay the rule
+    // Read before the version is compared, so that every candidate the report would replay the rule
     // over reaches it rather than short circuiting on the version the producer already rejected.
     configure(
       '''
@@ -288,7 +288,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
     def store = run(ARGUMENTS)
     def hit = run(ARGUMENTS)
 
-    then: 'the judge reads the exemption on both runs, as the producer that baked the row did'
+    then: 'the report reads the exemption on both runs, as the producer that baked the row did'
     hit.output.contains('Reusing configuration cache')
     [store, hit].every { it.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]') }
   }

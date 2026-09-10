@@ -332,7 +332,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
         // Written directly rather than through resolutionStrategy(Action), which clears this
         // property and would leave it reading back as unset. Applied by delegating a copy of the
         // closure rather than by project.configure, since that reads Task.project, which the
-        // configuration cache forbids at execution, and execution is where the judge applies this.
+        // configuration cache forbids at execution, and execution is where the report applies this.
         parameters.resolutionStrategy =
           Action<ResolutionStrategyWithCurrent> { current ->
             @Suppress("UNCHECKED_CAST")
@@ -399,18 +399,18 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   val projectDirectory: DirectoryProperty =
     project.objects.directoryProperty().convention(project.layout.projectDirectory)
 
-  /** Whether this report's judging rules have already been reported as unstorable in the cache. */
-  private var judgeWithheldFromCache = false
+  /** Whether this report's own rules have already been reported as unstorable in the cache. */
+  private var rulesWithheldFromCache = false
 
   init {
     description = "Displays the dependency updates for the project."
     group = "Help"
     outputs.upToDateWhen { false }
-    parameters.onJudgingCapture = { captured -> withholdJudgeFromCache(captured) }
+    parameters.onSettingStored = { captured -> withholdRulesFromCache(captured) }
   }
 
   /**
-   * Discards the configuration cache entry where a report's judging rules reach their own build
+   * Discards the configuration cache entry where a report's own rules reach their own build
    * script, which the cache cannot serialize. Discarding the entry keeps the report correct and the
    * build running, where storing it would fail outright and there is no way to turn the cache off
    * under isolated projects.
@@ -419,11 +419,11 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
    * serialized by substituting the owner, so those reports keep their entry.
    * https://github.com/ben-manes/gradle-versions-plugin/issues/1058
    */
-  private fun withholdJudgeFromCache(captured: Any?) {
-    if (judgeWithheldFromCache || !holdsKotlinScript(captured)) {
+  private fun withholdRulesFromCache(captured: Any?) {
+    if (rulesWithheldFromCache || !holdsKotlinScript(captured)) {
       return
     }
-    judgeWithheldFromCache = true
+    rulesWithheldFromCache = true
     notCompatibleWithConfigurationCache(
       "A rule applied to another build's dependency updates reads this build's script.",
     )
@@ -494,26 +494,26 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     // The configuration cache restores the task without the strategy the producers read, so the
     // copy that survives it is read where the live property is gone.
     val strategy: Action<in ResolutionStrategyWithCurrent>? =
-      parameters.resolutionStrategy ?: parameters.judgingResolutionStrategy
+      parameters.resolutionStrategy ?: parameters.storedResolutionStrategy
     // The built-in check is applied here only where this report merges a row some other policy
-    // resolved, which is the same condition that captures the convention and the exemption for the
-    // judge. Everywhere else the producers already applied the identical check, under the settings
+    // resolved, which is the same condition that stores the convention and the exemption for the
+    // report. Everywhere else the producers already applied the identical check, under the settings
     // they inherited, so applying it again would add nothing and would read the two predicates from
     // properties that are gone from a restored cache entry.
-    val judgesAnotherPolicy = parameters.judgesAnotherPolicy
-    val judge =
-      Judge(
+    val mergesRowsResolvedElsewhere = parameters.mergesRowsResolvedElsewhere
+    val reportRules =
+      ReportRules(
         strategy,
         logger,
         revision,
-        judgesAnotherPolicy && rejectPreReleases,
-        parameters.preReleaseVersionIf ?: parameters.judgingPreReleaseVersionIf,
-        parameters.exemptFromBuiltInChecksIf ?: parameters.judgingExemptFromBuiltInChecksIf,
+        mergesRowsResolvedElsewhere && rejectPreReleases,
+        parameters.preReleaseVersionIf ?: parameters.storedPreReleaseVersionIf,
+        parameters.exemptFromBuiltInChecksIf ?: parameters.storedExemptFromBuiltInChecksIf,
       )
     // Read from the copy that survives the cache rather than the live property, which is gone by
     // here on a restored entry. The copy is filled only for a report that merges in another build's
     // rows, so a build that aggregates nobody is left with what its producers already filtered.
-    val declaredFilter = parameters.judgingFilterDeclaredConfigurations
+    val declaredFilter = parameters.storedFilterDeclaredConfigurations
     val projectRows =
       partials
         .flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } }
@@ -524,8 +524,8 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
           partial.buildscriptStatuses.map { it.copy(projectPath = partial.projectPath) }
         }.filter { declaredFilter.keeps(it) }
     val statuses =
-      mergeStatuses(judge.judge(projectRows, candidatesByProjectPath)) +
-        mergeStatuses(judge.judge(buildscriptRows, candidatesByProjectPath))
+      mergeStatuses(reportRules.applyTo(projectRows, candidatesByProjectPath)) +
+        mergeStatuses(reportRules.applyTo(buildscriptRows, candidatesByProjectPath))
     val skipped =
       partials
         .flatMap { partial -> partial.skipped.map { SkippedConfiguration(partial.projectPath, it.name, it.reason) } }

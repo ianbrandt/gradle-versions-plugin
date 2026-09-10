@@ -1,6 +1,6 @@
 package com.github.benmanes.gradle.versions
 
-import com.github.benmanes.gradle.versions.updates.Judge
+import com.github.benmanes.gradle.versions.updates.ReportRules
 import com.github.benmanes.gradle.versions.updates.PartialStatus
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentFilter
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.RecordedComponentSelection
@@ -13,20 +13,20 @@ import spock.lang.Specification
 import spock.lang.Unroll
 
 /**
- * A specification for the judge that replays the aggregating build's own component-selection
+ * A specification for ReportRules, which replays the aggregating build's own component-selection
  * rules over each row's recorded candidates, starting at the row's baked verdict.
  * https://github.com/ben-manes/gradle-versions-plugin/issues/1058
  */
 @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-final class JudgeSpec extends Specification {
-  private static final def LOGGER = Logging.getLogger(JudgeSpec)
+final class ReportRulesSpec extends Specification {
+  private static final def LOGGER = Logging.getLogger(ReportRulesSpec)
 
-  private static List<PartialStatus> judge(
+  private static List<PartialStatus> applyRules(
     List<PartialStatus> statuses, Map<String, List<String>> candidates, Action strategy,
     String revision = 'milestone', boolean rejectPreReleases = false,
     Spec<String> preReleaseVersionIf = null, ComponentFilter exemptFromBuiltInChecksIf = null) {
-    return new Judge(strategy, LOGGER, revision, rejectPreReleases, preReleaseVersionIf,
-      exemptFromBuiltInChecksIf).judge(statuses, candidates)
+    return new ReportRules(strategy, LOGGER, revision, rejectPreReleases, preReleaseVersionIf,
+      exemptFromBuiltInChecksIf).applyTo(statuses, candidates)
   }
 
   private static PartialStatus statusOf(
@@ -47,20 +47,20 @@ final class JudgeSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def 'A candidate list that omits the walk verdict leaves the row unjudged'() {
+  def 'A candidate list that omits the walk verdict leaves the row undecided'() {
     given: 'a rule that would reject the baked verdict if it ever ran, but the row has no recorded candidates'
     def status = statusOf('com.example', 'widget', '1.0', '2.0')
     def candidates = [':': []]
 
     when:
-    def judged = judge([status], candidates, rejecting('2.0'))
+    def applied = applyRules([status], candidates, rejecting('2.0'))
 
     then: 'the baked verdict survives untouched, as the membership guard never ran the rule'
-    judged == [status]
+    applied == [status]
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def 'A predicate reading metadata or the descriptor is answered null at the judge'() {
+  def 'A predicate reading metadata or the descriptor is answered null at the report'() {
     given:
     def selection = new RecordedComponentSelection('com.example', 'widget', '2.0')
 
@@ -81,15 +81,15 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, rejectAll)
+    def applied = applyRules([status], candidates, rejectAll)
 
     then:
-    judged.size() == 1
-    judged[0].latestVersion == 'none'
-    judged[0].unresolved != null
-    judged[0].unresolved.selectorGroup == 'com.example'
-    judged[0].unresolved.selectorName == 'widget'
-    judged[0].unresolved.failureText == 'rejected by the test rule'
+    applied.size() == 1
+    applied[0].latestVersion == 'none'
+    applied[0].unresolved != null
+    applied[0].unresolved.selectorGroup == 'com.example'
+    applied[0].unresolved.selectorName == 'widget'
+    applied[0].unresolved.failureText == 'rejected by the test rule'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -104,10 +104,10 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, rejectSilently)
+    def applied = applyRules([status], candidates, rejectSilently)
 
     then:
-    judged[0].unresolved.failureText == 'Rejected by the aggregating build\'s component selection rules'
+    applied[0].unresolved.failureText == 'Rejected by the aggregating build\'s component selection rules'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -123,10 +123,10 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, strategy)
+    def applied = applyRules([status], candidates, strategy)
 
     then:
-    judged[0].unresolved.failureText == 'first reason'
+    applied[0].unresolved.failureText == 'first reason'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -144,10 +144,10 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, strategy)
+    def applied = applyRules([status], candidates, strategy)
 
     then: 'the ceiling (3.0, the row\'s own baked verdict) names the reason, not 2.0 or 1.0'
-    judged[0].unresolved.failureText == 'rejected 3.0'
+    applied[0].unresolved.failureText == 'rejected 3.0'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -172,11 +172,11 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([core, coreExt], candidates, rejectCoreOnly)
+    def applied = applyRules([core, coreExt], candidates, rejectCoreOnly)
 
     then: 'only the targeted module is capped; the one that merely shares its prefix is untouched'
-    judged.find { it.name == 'core' }.latestVersion == '1.0'
-    judged.find { it.name == 'core-ext' }.latestVersion == '2.0'
+    applied.find { it.name == 'core' }.latestVersion == '1.0'
+    applied.find { it.name == 'core-ext' }.latestVersion == '2.0'
   }
 
   @Unroll
@@ -195,10 +195,10 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([core], candidates, rejectCore)
+    def applied = applyRules([core], candidates, rejectCore)
 
     then: 'an interpolated notation is a GString rather than a String, and Gradle accepts either'
-    judged[0].latestVersion == '1.0'
+    applied[0].latestVersion == '1.0'
 
     where:
     label       | notation
@@ -222,11 +222,11 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, rejectOnNullMetadata)
+    def applied = applyRules([status], candidates, rejectOnNullMetadata)
 
-    then: 'the row keeps the verdict its own build reached with the metadata the judge cannot read'
-    judged[0].latestVersion == '3.0'
-    judged[0].unresolved == null
+    then: 'the row keeps the verdict its own build reached with the metadata the report cannot read'
+    applied[0].latestVersion == '3.0'
+    applied[0].unresolved == null
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -247,11 +247,11 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, strategy)
+    def applied = applyRules([status], candidates, strategy)
 
     then: 'the walk stops rather than offering 2.0, which the rule rejected as surely as 3.0'
-    judged[0].latestVersion == '3.0'
-    judged[0].unresolved == null
+    applied[0].latestVersion == '3.0'
+    applied[0].unresolved == null
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -271,10 +271,10 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, strategy)
+    def applied = applyRules([status], candidates, strategy)
 
     then: 'the metadata read by the earlier rule does not excuse the later rule from being applied'
-    judged[0].latestVersion == '2.0'
+    applied[0].latestVersion == '2.0'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -289,14 +289,14 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, rejectAll)
+    def applied = applyRules([status], candidates, rejectAll)
 
     then: 'the missing candidate list is read as "row not recorded", not as every candidate rejected'
-    judged == [status]
+    applied == [status]
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "Candidates recorded by one project never judge another project's row"() {
+  def "Candidates recorded by one project never decide another project's row"() {
     given: 'two projects declaring the same module; only one recorded a candidate list at all'
     def rowInA = statusOf('com.example', 'widget', '1.0', '2.0', ':a')
     def rowInB = statusOf('com.example', 'widget', '1.0', '2.0', ':b')
@@ -306,18 +306,18 @@ final class JudgeSpec extends Specification {
     ]
 
     when:
-    def judged = judge([rowInA, rowInB], candidates, rejecting('2.0'))
+    def applied = applyRules([rowInA, rowInB], candidates, rejecting('2.0'))
 
     then: "project :a's row is walked down by its own recorded candidates"
-    judged.find { it.projectPath == ':a' }.latestVersion == '1.0'
+    applied.find { it.projectPath == ':a' }.latestVersion == '1.0'
 
     and: "project :b's row, which recorded none, is untouched by :a's candidates"
-    judged.find { it.projectPath == ':b' }.latestVersion == '2.0'
+    applied.find { it.projectPath == ':b' }.latestVersion == '2.0'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def 'The user action executes exactly once, regardless of how many rows are judged'() {
-    given: 'a strategy that counts its own executions, judged over three rows'
+  def 'The user action executes exactly once, regardless of how many rows are applied'() {
+    given: 'a strategy that counts its own executions, applied over three rows'
     def rows = [
       statusOf('com.example', 'a', '1.0', '2.0'),
       statusOf('com.example', 'b', '1.0', '2.0'),
@@ -331,7 +331,7 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    judge(rows, candidates, strategy)
+    applyRules(rows, candidates, strategy)
 
     then:
     executions == 1
@@ -346,10 +346,10 @@ final class JudgeSpec extends Specification {
     ]
 
     when:
-    def judged = judge([status], candidates, rejecting('3.0'), 'milestone')
+    def applied = applyRules([status], candidates, rejecting('3.0'), 'milestone')
 
     then: 'the walk steps over the snapshot that a milestone report may not offer'
-    judged[0].latestVersion == '2.0'
+    applied[0].latestVersion == '2.0'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/798')
@@ -361,10 +361,10 @@ final class JudgeSpec extends Specification {
     ]
 
     when:
-    def judged = judge([status], candidates, rejecting('3.0'), 'release')
+    def applied = applyRules([status], candidates, rejecting('3.0'), 'release')
 
     then: 'the snapshot is stepped over and the jre qualified version is offered instead'
-    judged[0].latestVersion == '2.0.jre11'
+    applied[0].latestVersion == '2.0.jre11'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/475')
@@ -376,10 +376,10 @@ final class JudgeSpec extends Specification {
     ]
 
     when:
-    def judged = judge([status], candidates, rejecting('3.0'), 'release')
+    def applied = applyRules([status], candidates, rejecting('3.0'), 'release')
 
     then: 'the newer snapshot is stepped over, but the version the build declares is exempt'
-    judged[0].latestVersion == '1.0-SNAPSHOT'
+    applied[0].latestVersion == '1.0-SNAPSHOT'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
@@ -389,25 +389,25 @@ final class JudgeSpec extends Specification {
     def candidates = [':': ['com.example:widget:2.0-SNAPSHOT', 'com.example:widget:1.5']]
 
     when:
-    def judged = judge([status], candidates, rejecting('9.9'), 'release')
+    def applied = applyRules([status], candidates, rejecting('9.9'), 'release')
 
     then: 'the revision guard applies below the ceiling only, so the baked verdict is untouched'
-    judged[0].latestVersion == '2.0-SNAPSHOT'
-    judged[0].unresolved == null
+    applied[0].latestVersion == '2.0-SNAPSHOT'
+    applied[0].unresolved == null
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def 'Judges the ceiling itself once the report supplies a rule of its own'() {
+  def 'Rechecks the ceiling itself once the report supplies a rule of its own'() {
     given: 'a snapshot ceiling a report rule rejects, and a release below it'
     def status = statusOf('com.example', 'widget', '1.0', '2.0-SNAPSHOT')
     def candidates = [':': ['com.example:widget:2.0-SNAPSHOT', 'com.example:widget:1.5']]
 
     when:
-    def judged = judge([status], candidates, rejecting('2.0-SNAPSHOT'), 'release')
+    def applied = applyRules([status], candidates, rejecting('2.0-SNAPSHOT'), 'release')
 
     then: 'the rule reaches the ceiling as well as the candidates below it, and the row drops to the release'
-    judged[0].latestVersion == '1.5'
-    judged[0].unresolved == null
+    applied[0].latestVersion == '1.5'
+    applied[0].unresolved == null
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
@@ -422,12 +422,12 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    def judged = judge([status], candidates, rejectAll, 'release')
+    def applied = applyRules([status], candidates, rejectAll, 'release')
 
     then: 'the exhausted walk names the ceiling\'s own rejection reason'
-    judged[0].latestVersion == 'none'
-    judged[0].unresolved.selectorVersion == '2.0-SNAPSHOT'
-    judged[0].unresolved.failureText == 'rejected by the test rule'
+    applied[0].latestVersion == 'none'
+    applied[0].unresolved.selectorVersion == '2.0-SNAPSHOT'
+    applied[0].unresolved.failureText == 'rejected by the test rule'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -444,7 +444,7 @@ final class JudgeSpec extends Specification {
     } as Action<ResolutionStrategyWithCurrent>
 
     when:
-    judge([status], candidates, strategy)
+    applyRules([status], candidates, strategy)
 
     then:
     order == ['first', 'second']
@@ -458,11 +458,11 @@ final class JudgeSpec extends Specification {
       [':': ['com.example:widget:2.0', 'com.example:widget:1.0', 'com.example:widget:3.0-Beta1']]
 
     when:
-    def judged = judge([status], candidates, rejecting('3.0-Beta1'))
+    def applied = applyRules([status], candidates, rejecting('3.0-Beta1'))
 
     then: 'the walk steps to the newest candidate below the verdict, not to the end of the list'
-    judged[0].latestVersion == '2.0'
-    judged[0].unresolved == null
+    applied[0].latestVersion == '2.0'
+    applied[0].unresolved == null
   }
 
   def "The report's pre-release check rejects the ceiling its producer accepted"() {
@@ -472,14 +472,14 @@ final class JudgeSpec extends Specification {
                             'com.probe:unstable-ceiling:1.0']]
 
     when:
-    def judged = judge(statuses, candidates, null, 'milestone', true)
+    def applied = applyRules(statuses, candidates, null, 'milestone', true)
 
     then: 'the walk steps down to the newest candidate the check accepts'
-    judged[0].latestVersion == '2.0'
-    judged[0].unresolved == null
+    applied[0].latestVersion == '2.0'
+    applied[0].unresolved == null
   }
 
-  def "The report's own convention is part of the check the judge applies"() {
+  def "The report's own convention is part of the check it applies"() {
     given: 'versions no built-in marker covers, and a convention that names them'
     def statuses = [statusOf('com.example', 'prerelease-flagged', '1.0', '3.0-flagged')]
     def candidates = [':': ['com.example:prerelease-flagged:3.0-flagged',
@@ -487,12 +487,12 @@ final class JudgeSpec extends Specification {
                             'com.example:prerelease-flagged:1.0']]
 
     when:
-    def judged = judge(statuses, candidates, null, 'milestone', true,
+    def applied = applyRules(statuses, candidates, null, 'milestone', true,
       { String version -> version.endsWith('-flagged') } as Spec<String>)
 
     then: 'both flagged candidates are held, leaving the version the build already declares'
-    judged[0].latestVersion == '1.0'
-    judged[0].unresolved == null
+    applied[0].latestVersion == '1.0'
+    applied[0].unresolved == null
   }
 
   def "An exemption keeps a candidate the report's check would reject"() {
@@ -501,11 +501,11 @@ final class JudgeSpec extends Specification {
     def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0']]
 
     when:
-    def judged = judge(statuses, candidates, null, 'milestone', true, null,
+    def applied = applyRules(statuses, candidates, null, 'milestone', true, null,
       { current -> current.candidate.module == 'unstable-ceiling' } as ComponentFilter)
 
     then: 'the ceiling stands, as it does for a build that exempts the module at its producer'
-    judged[0].latestVersion == '3.0-Beta1'
+    applied[0].latestVersion == '3.0-Beta1'
   }
 
   def 'An exemption answering on the absent metadata leaves the row as its producer reported it'() {
@@ -515,12 +515,12 @@ final class JudgeSpec extends Specification {
                             'com.probe:unstable-ceiling:1.0']]
 
     when:
-    def judged = judge(statuses, candidates, null, 'milestone', true, null,
+    def applied = applyRules(statuses, candidates, null, 'milestone', true, null,
       { current -> current.metadata != null } as ComponentFilter)
 
-    then: 'the predicate judged the record rather than the candidate, so the ceiling stands'
-    judged[0].latestVersion == '3.0-Beta1'
-    judged[0].unresolved == null
+    then: 'the predicate applied the record rather than the candidate, so the ceiling stands'
+    applied[0].latestVersion == '3.0-Beta1'
+    applied[0].unresolved == null
   }
 
   def 'A build already on a pre-release is still offered a newer one'() {
@@ -529,9 +529,9 @@ final class JudgeSpec extends Specification {
     def candidates = [':': ['com.probe:unstable-ceiling:3.0-Beta1', 'com.probe:unstable-ceiling:2.0']]
 
     when:
-    def judged = judge(statuses, candidates, null, 'milestone', true)
+    def applied = applyRules(statuses, candidates, null, 'milestone', true)
 
     then: 'the check reads both versions, so nothing is held back'
-    judged[0].latestVersion == '3.0-Beta1'
+    applied[0].latestVersion == '3.0-Beta1'
   }
 }

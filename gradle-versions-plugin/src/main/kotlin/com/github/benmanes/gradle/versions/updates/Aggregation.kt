@@ -161,7 +161,7 @@ internal class DependencyUpdatesParameters {
     set(value) {
       field = value
       onRulesChanged?.invoke()
-      onOwnJudgingRule?.invoke()
+      onOwnReportRule?.invoke()
     }
 
   @Transient
@@ -187,11 +187,11 @@ internal class DependencyUpdatesParameters {
 
   /**
    * Whether a row merged into this report was resolved under rules other than this task's, which
-   * is the only case where judging can change an answer. Turning it on captures the rules for the
-   * judge, and they stay captured as any of them is reconfigured, so they may be set in any order
-   * and any number of times.
+   * is the only case where re-applying this task's rules can change an answer. Turning it on stores
+   * those rules, and they stay stored as any of them is reconfigured, so they may be set in any
+   * order and any number of times.
    */
-  var judgesAnotherPolicy: Boolean = false
+  var mergesRowsResolvedElsewhere: Boolean = false
     set(value) {
       field = value
       if (value) {
@@ -200,15 +200,15 @@ internal class DependencyUpdatesParameters {
     }
 
   /**
-   * The strategy the judge applies, stored where the configuration cache serializes it into the
-   * task rather than dropping it with the transient property above. It is filled only for a report
-   * that merges rows resolved under another project's or build's own rules, so every other report
-   * stays exempt from serializing the action.
+   * The strategy re-applied at the report, stored where the configuration cache serializes it into
+   * the task rather than dropping it with the transient property above. It is filled only for a
+   * report that merges rows resolved under another project's or build's own rules, so every other
+   * report stays exempt from serializing the action.
    */
-  var judgingResolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
+  var storedResolutionStrategy: Action<in ResolutionStrategyWithCurrent>? = null
     set(value) {
       field = value
-      onJudgingCapture?.invoke(value)
+      onSettingStored?.invoke(value)
     }
 
   /**
@@ -217,10 +217,10 @@ internal class DependencyUpdatesParameters {
    * on the same terms as the strategy, so a report with no other policy's rows in it stays exempt
    * from serializing a predicate.
    */
-  var judgingFilterDeclaredConfigurations: Spec<String>? = null
+  var storedFilterDeclaredConfigurations: Spec<String>? = null
     set(value) {
       field = value
-      onJudgingCapture?.invoke(value)
+      onSettingStored?.invoke(value)
     }
 
   /**
@@ -229,44 +229,44 @@ internal class DependencyUpdatesParameters {
    * on the same terms as the strategy, so a report with no other policy's rows in it stays exempt
    * from serializing a predicate.
    */
-  var judgingPreReleaseVersionIf: Spec<String>? = null
+  var storedPreReleaseVersionIf: Spec<String>? = null
     set(value) {
       field = value
-      onJudgingCapture?.invoke(value)
+      onSettingStored?.invoke(value)
     }
 
   /** The exemption the report's built-in checks read, stored on the same terms as the convention. */
-  var judgingExemptFromBuiltInChecksIf: ComponentFilter? = null
+  var storedExemptFromBuiltInChecksIf: ComponentFilter? = null
     set(value) {
       field = value
-      onJudgingCapture?.invoke(value)
+      onSettingStored?.invoke(value)
     }
 
   /**
-   * Notified as each of the two judging fields above is assigned, so that the task can report
+   * Notified as each of the two stored fields above is assigned, so that the task can report
    * whether the cache can store them however late the rule, the filter and the aggregated
    * coordinate are declared. Transient, since the question is settled while the build is configured
    * and the answer is serialized into the entry rather than this.
    */
   @Transient
-  var onJudgingCapture: ((Any?) -> Unit)? = null
+  var onSettingStored: ((Any?) -> Unit)? = null
 
   /**
-   * Notified where a judging rule is declared on this project, so that every report above it
-   * captures its rules for the judge. A rule declared here resolves this project's rows under a
-   * policy an ancestor's report does not apply, which is the case the judge exists for. Transient,
-   * for the same reason as the notification above.
+   * Notified where a rule of this project's own is declared, so that every report above it stores
+   * its rules. A rule declared here resolves this project's rows under a policy an ancestor's
+   * report does not apply, which is the case re-applying the rules exists for. Transient, for the
+   * same reason as the notification above.
    */
   @Transient
-  var onOwnJudgingRule: (() -> Unit)? = null
+  var onOwnReportRule: (() -> Unit)? = null
 
   /**
    * Notified as a rule is declared here or as this report starts merging another policy's rows, so
-   * that the service refills the judging fields above from the chain this project inherits. The
+   * that the service refills the stored fields above from the chain this project inherits. The
    * rules are copied from that chain rather than from the fields beside them: a rule declared on an
-   * ancestor governs what this project's producers resolve, so a judge reading only what is
-   * declared here would hold the rows it merges to no rule at all. Transient, for the same reason
-   * as the notification above.
+   * ancestor governs what this project's producers resolve, so reading only what is declared here
+   * would leave the merged rows under no rule at all. Transient, for the same reason as the
+   * notification above.
    */
   @Transient
   var onRulesChanged: (() -> Unit)? = null
@@ -276,7 +276,7 @@ internal class DependencyUpdatesParameters {
     set(value) {
       field = value
       if (value) {
-        onOwnJudgingRule?.invoke()
+        onOwnReportRule?.invoke()
       }
     }
   var checkConstraints: Boolean? = null
@@ -332,8 +332,8 @@ internal abstract class DependencyUpdatesParametersService :
   /** Returns where an earlier release wrote the partial result of each project of the build. */
   fun legacyPartials(): List<RegularFile> = legacy.map { it.get() }
 
-  /** The projects a judging rule is declared on, rather than inherited by. */
-  private val ownJudgingRules = ConcurrentHashMap.newKeySet<String>()
+  /** The projects a report rule is declared on, rather than inherited by. */
+  private val ownReportRules = ConcurrentHashMap.newKeySet<String>()
 
   /** Publishes the settings of the given project's task to the projects that resolve with them. */
   fun register(
@@ -341,24 +341,24 @@ internal abstract class DependencyUpdatesParametersService :
     parameters: DependencyUpdatesParameters,
   ) {
     byPath[path] = parameters
-    parameters.onOwnJudgingRule = { noteOwnJudgingRule(path) }
-    parameters.onRulesChanged = { captureJudgingRules() }
+    parameters.onOwnReportRule = { noteOwnReportRule(path) }
+    parameters.onRulesChanged = { storeReportRules() }
     // Registered as the task is realized, which is before the build script's configuration of it
     // runs, so a rule already declared here came from a plugin or an earlier hook and would
     // otherwise be missed.
     if (parameters.resolutionStrategySet || parameters.filterDeclaredConfigurations != null) {
-      noteOwnJudgingRule(path)
+      noteOwnReportRule(path)
     }
-    if (ownJudgingRules.any { isBelow(it, path) }) {
-      parameters.judgesAnotherPolicy = true
+    if (ownReportRules.any { isBelow(it, path) }) {
+      parameters.mergesRowsResolvedElsewhere = true
     }
     // A report already merging another policy's rows may inherit from this project, so its captured
     // rules are refilled now that this project's own are registered.
-    captureJudgingRules()
+    storeReportRules()
   }
 
   /**
-   * Refills the judging rules of every report that merges another policy's rows, from the chain
+   * Refills the stored rules of every report that merges another policy's rows, from the chain
    * each of them inherits. Run over all of them rather than the one whose rules changed, as a rule
    * declared anywhere in the tree reaches every report below it, and the projects are registered in
    * whatever order they are configured.
@@ -371,18 +371,18 @@ internal abstract class DependencyUpdatesParametersService :
    * always the one that follows the last assignment.
    */
   @Synchronized
-  private fun captureJudgingRules() {
+  private fun storeReportRules() {
     byPath.forEach { (path, parameters) ->
-      if (parameters.judgesAnotherPolicy) {
+      if (parameters.mergesRowsResolvedElsewhere) {
         // Taken from the chain unresolved, so that a report inheriting no rule at all keeps a null
         // rather than a default the configuration cache would then have to serialize.
         val chain = chainOf(path)
-        parameters.judgingResolutionStrategy =
+        parameters.storedResolutionStrategy =
           chain.firstOrNull { it.resolutionStrategySet }?.resolutionStrategy
-        parameters.judgingFilterDeclaredConfigurations =
+        parameters.storedFilterDeclaredConfigurations =
           chain.firstNotNullOfOrNull { it.filterDeclaredConfigurations }
-        parameters.judgingPreReleaseVersionIf = chain.firstNotNullOfOrNull { it.preReleaseVersionIf }
-        parameters.judgingExemptFromBuiltInChecksIf =
+        parameters.storedPreReleaseVersionIf = chain.firstNotNullOfOrNull { it.preReleaseVersionIf }
+        parameters.storedExemptFromBuiltInChecksIf =
           chain.firstNotNullOfOrNull { it.exemptFromBuiltInChecksIf }
       }
     }
@@ -390,21 +390,21 @@ internal abstract class DependencyUpdatesParametersService :
 
   /**
    * Records that the given project resolves under its own rules, and marks every report above it
-   * as one where judging can now change a row. Read in both directions, since a rule may be declared
-   * on a project before or after an ancestor's task is registered. Each side writes its own entry
-   * before reading the other's, so that neither is missed where the two are configured at once
-   * under isolated projects.
+   * as one where re-applying the rules can now change a row. Read in both directions, since a rule
+   * may be declared on a project before or after an ancestor's task is registered. Each side writes
+   * its own entry before reading the other's, so that neither is missed where the two are
+   * configured at once under isolated projects.
    */
-  private fun noteOwnJudgingRule(path: String) {
-    if (!ownJudgingRules.add(path)) {
+  private fun noteOwnReportRule(path: String) {
+    if (!ownReportRules.add(path)) {
       return
     }
     byPath.forEach { (ancestor, parameters) ->
       if (isBelow(path, ancestor)) {
-        parameters.judgesAnotherPolicy = true
+        parameters.mergesRowsResolvedElsewhere = true
       }
     }
-    captureJudgingRules()
+    storeReportRules()
   }
 
   /** Whether the first path is a project beneath the second. */
@@ -592,14 +592,14 @@ internal fun registerAggregation(
         },
       )
     }
-    // The task judges the report from the state the configuration cache restored, which drops the
-    // strategy the producers read, so a copy that survives is kept for a report that can merge
+    // The task re-applies its rules from the state the configuration cache restored, which drops
+    // the strategy the producers read, so a copy that survives is kept for a report that can merge
     // another build's rows. Marked as each dependency is declared rather than at one moment of this
     // project's evaluation, so that a coordinate added by a later hook is still seen. Only a
     // coordinate reaches another build; a project of this build is marked instead where a rule is
     // declared on it, which the service does as that rule is declared.
     if (dependency is ExternalModuleDependency) {
-      accumulator.configure { task -> task.parameters.judgesAnotherPolicy = true }
+      accumulator.configure { task -> task.parameters.mergesRowsResolvedElsewhere = true }
     }
   }
 

@@ -29,7 +29,7 @@ import org.gradle.api.specs.Spec
  * there: the candidates come from a repository listing, and a version can pass version selection
  * and still fail variant selection.
  */
-internal class Judge(
+internal class ReportRules(
   resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
   private val logger: Logger,
   private val revision: String,
@@ -70,7 +70,7 @@ internal class Judge(
         // same throw, caught it there and recorded a skipped configuration (see Aggregation.kt), so
         // failing the whole task on top of that already-reported skip would help nobody. Reported
         // rather than swallowed: a strategy that throws only here, such as a serialized closure
-        // reading a build script, would otherwise leave every row unjudged with nothing printed.
+        // reading a build script, would otherwise leave every row undecided with nothing printed.
         reportUnapplied(e)
         false
       }
@@ -96,7 +96,7 @@ internal class Judge(
    * dependency, an offline run, or a v1/v2 partial from an older release) is left at its baked
    * verdict.
    */
-  fun judge(
+  fun applyTo(
     statuses: List<PartialStatus>,
     candidatesByProjectPath: Map<String, List<String>>,
   ): List<PartialStatus> {
@@ -105,18 +105,18 @@ internal class Judge(
     }
     val versionsByProjectPath = candidatesByProjectPath.mapValues { (_, candidates) -> versionsByModule(candidates) }
     return try {
-      statuses.map { status -> judgeRow(status, versionsByProjectPath) }
+      statuses.map { status -> applyToRow(status, versionsByProjectPath) }
     } catch (e: Exception) {
       // A rule body throws where registering it did not: a closure serialized into the
       // configuration cache without the build script it reads hits the missing method only once a
       // candidate reaches it. Every row falls back rather than the one that threw, so the report is
-      // one build's answer throughout rather than a mix of judged and unjudged rows.
+      // one build's answer throughout rather than a mix of rechecked and undecided rows.
       reportUnapplied(e)
       statuses
     }
   }
 
-  private fun judgeRow(
+  private fun applyToRow(
     status: PartialStatus,
     versionsByProjectPath: Map<String, Map<String, List<String>>>,
   ): PartialStatus {
@@ -169,27 +169,27 @@ internal class Judge(
         }
         continue
       }
-      // An exemption that decided on the metadata absent from the record judged the record rather
-      // than the candidate, so the row is left as the build that resolved it reported it, as it is
-      // for a rule that rejects the same way.
-      if (shim.unjudged) {
+      // An exemption that decided on the metadata absent from the record answered about the record
+      // rather than the candidate, so the row is left as the build that resolved it reported it, as
+      // it is for a rule that rejects the same way.
+      if (shim.undecided) {
         return status
       }
       // Below the ceiling the report's revision is all a candidate can be checked against, since
-      // no status is recorded. A guard rejection is never an unjudged one: only the version string
+      // no status is recorded. A guard rejection is never an undecided one: only the version string
       // is read, and every record has one.
       if (index > ceilingIndex && !accepted(status, version)) {
         continue
       }
       for (rule in rules) {
-        if (shim.rejected || shim.unjudged) break
+        if (shim.rejected || shim.undecided) break
         shim.applyRule(rule)
       }
-      // A rule that rejected on the metadata absent from the record judged the record rather than
-      // the candidate, and nothing distinguishes the candidates below it from that same answer, so
-      // the row is left as the build that resolved it reported it. Continuing the walk would report
-      // a version this build's rules had already rejected above.
-      if (shim.unjudged) {
+      // A rule that rejected on the metadata absent from the record answered about the record
+      // rather than the candidate, and nothing distinguishes the candidates below it from that same
+      // answer, so the row is left as the build that resolved it reported it. Continuing the walk
+      // would report a version this build's rules had already rejected above.
+      if (shim.undecided) {
         return status
       }
       if (!shim.rejected) {
@@ -247,11 +247,11 @@ internal class Judge(
       return false
     }
     // Read through the record rather than called, so an exemption that reads the metadata absent
-    // from the record marks the candidate unjudged instead of answering. The caller leaves such a
+    // from the record marks the candidate undecided instead of answering. The caller leaves such a
     // row alone; leaving it out here on an answer the predicate could not give would drop an
     // upgrade the producer reported.
     val exempt = shim.evaluate { isExempt(selection) }
-    return !shim.unjudged && !exempt
+    return !shim.undecided && !exempt
   }
 
   /**
@@ -276,7 +276,7 @@ internal class Judge(
    * Sorted rather than read as recorded: a candidate is recorded in the order its repository lists
    * it, so a module found in more than one repository is recorded newest-first per repository
    * rather than newest-first overall, and the verdict can trail candidates older than itself. The
-   * walk in [judgeRow] reads position as age, so the order has to match.
+   * walk in [applyToRow] reads position as age, so the order has to match.
    */
   private fun versionsByModule(candidates: List<String>): Map<String, List<String>> {
     val byModule = mutableMapOf<String, MutableList<String>>()

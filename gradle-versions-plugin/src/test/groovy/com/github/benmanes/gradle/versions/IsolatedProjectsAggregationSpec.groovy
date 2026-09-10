@@ -177,7 +177,7 @@ final class IsolatedProjectsAggregationSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
   def "Keeps the root's exemption from the built-in checks on the store run and on the hit"() {
     given: "a module the built-in check would withhold, exempted by the root, with a subproject " +
-      'declaring a rule of its own so that the report judges rows resolved under another policy'
+      'declaring a rule of its own so that the report reaches rows resolved under another policy'
     new File(testProjectDir.root, 'build.gradle') <<
       """
         dependencyUpdates.exemptFromBuiltInChecksIf {
@@ -202,7 +202,7 @@ final class IsolatedProjectsAggregationSpec extends Specification {
     then: 'the exemption survives into the task the cache restores, so both runs report the same'
     store.task(':dependencyUpdates').outcome == SUCCESS
     hit.output.contains('Reusing configuration cache')
-    // Without the exemption the judge rejects the pre-release and the row reads as up to date,
+    // Without the exemption the report rejects the pre-release and the row reads as up to date,
     // which is what a report that lost it across the cache prints.
     store.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]')
     hit.output.contains('com.example:prerelease-widget [1.0 -> 1.2-beta]')

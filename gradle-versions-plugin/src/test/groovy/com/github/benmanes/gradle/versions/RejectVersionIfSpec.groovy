@@ -380,7 +380,7 @@ final class RejectVersionIfSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "a component selection rule on the build's own configuration still caps the report"() {
     given: 'a configuration-level rule rejects the 16.0 line, and a rejectVersionIf targeting another ' +
-      'dependency forces the judge to replay rules over every row, guava included'
+      'dependency forces the report to replay rules over every row, guava included'
     buildFile = writeScript('''
       dependencies {
         implementation 'com.google.inject:guice:2.0'
@@ -415,7 +415,7 @@ final class RejectVersionIfSpec extends Specification {
       .build()
     def report = new JsonSlurper().parseText(new File(reportFolder, 'report.json').text)
 
-    then: 'guava stays capped below every 16.0 candidate the judge replays rules over, and guice stops at 3.0'
+    then: 'guava stays capped below every 16.0 candidate the report replays rules over, and guice stops at 3.0'
     result.task(':dependencyUpdates').outcome == SUCCESS
     report.current.dependencies*.name == ['guava']
     report.outdated.dependencies*.name == ['guice']

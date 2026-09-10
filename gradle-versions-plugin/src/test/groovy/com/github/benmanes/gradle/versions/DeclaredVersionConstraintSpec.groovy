@@ -214,7 +214,7 @@ final class DeclaredVersionConstraintSpec extends Specification {
     when:
     def result = run()
 
-    then: 'one for the resolutions, which share a warning, and one for the report that judges'
+    then: 'one for the resolutions, which share a warning, and one for the report that replays them'
     result.output.count('satisfiesDeclaredBound is deprecated') == 2
 
     and: 'the second is the report replaying the same rule, not a second resolution'

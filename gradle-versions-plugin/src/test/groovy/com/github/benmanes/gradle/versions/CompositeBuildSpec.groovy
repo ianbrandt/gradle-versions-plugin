@@ -554,7 +554,7 @@ final class CompositeBuildSpec extends Specification {
     result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
   }
 
-  def "Judges an included build with nothing configured by the aggregating report's settings"() {
+  def "Applies the aggregating report's settings to an included build with none of its own"() {
     given: 'a child declaring a module whose ceiling is a pre-release string, and setting no rules of its own'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
@@ -1816,7 +1816,7 @@ final class CompositeBuildSpec extends Specification {
       .parse(new File(testProjectDir.root, "${path}build/dependencyUpdates/report.json"))
   }
 
-  private void judgedComposite(
+  private void ruledComposite(
     String outerBody =
       """
         dependencies {
@@ -1838,7 +1838,7 @@ final class CompositeBuildSpec extends Specification {
 
         ${outerBody}
       """.stripIndent()
-    judgedChild()
+    ruledChild()
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
@@ -1931,7 +1931,7 @@ final class CompositeBuildSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A Kotlin rule calling a buildSrc helper keeps the configuration cache"() {
     given: 'the helper moved out of the build script, which is the remedy the warning names'
-    kotlinJudgedComposite('candidate.version.isRejected()')
+    kotlinRuledComposite('candidate.version.isRejected()')
     testProjectDir.newFolder('buildSrc', 'src', 'main', 'java')
     testProjectDir.newFile('buildSrc/src/main/java/Stability.java') <<
       """
@@ -1961,7 +1961,7 @@ final class CompositeBuildSpec extends Specification {
    * The same composite with a Kotlin build script, where the rule is written as the README's recipe
    * is: a call to a function the script declares. Such a call binds the script into the lambda.
    */
-  private void kotlinJudgedComposite(String rule, String locals = 'val rejected = "3.1"') {
+  private void kotlinRuledComposite(String rule, String locals = 'val rejected = "3.1"') {
     testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
     testProjectDir.newFile('build.gradle.kts') <<
       """
@@ -1988,10 +1988,10 @@ final class CompositeBuildSpec extends Specification {
           }
         }
       """.stripIndent()
-    judgedChild()
+    ruledChild()
   }
 
-  private void judgedChild() {
+  private void ruledChild() {
     testProjectDir.newFolder('child')
     testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
     testProjectDir.newFile('child/build.gradle') <<
@@ -2027,7 +2027,7 @@ final class CompositeBuildSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "An including build's rejectVersionIf governs an included build's dependency"() {
     given: "the child's own resolution accepts 3.1, but the outer's rule rejects it"
-    judgedComposite()
+    ruledComposite()
 
     when:
     def result = run('dependencyUpdates')
@@ -2069,12 +2069,12 @@ final class CompositeBuildSpec extends Specification {
           dependencyUpdatesAggregation 'com.example:child:1.0'
         }
       """.stripIndent()
-    judgedChild()
+    ruledChild()
 
     when:
     def result = run(':app:dependencyUpdates')
 
-    then: "the subproject's judge reads the same inherited chain its producers resolve under"
+    then: "the subproject's report reads the same inherited chain its producers resolve under"
     result.task(':app:dependencyUpdates').outcome == SUCCESS
     result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
     !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
@@ -2083,13 +2083,13 @@ final class CompositeBuildSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "An including build's rejectVersionIf governs a merged-in row under the configuration cache"() {
     given: "the same composite, run with the cache stored and then reused"
-    judgedComposite()
+    ruledComposite()
 
     when:
     def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
     def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
 
-    then: "the rules are judged from the serialized task, so both legs cap the row at 3.0"
+    then: "the rules are read from the serialized task, so both legs cap the row at 3.0"
     store.task(':dependencyUpdates').outcome == SUCCESS
     store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
     !store.output.contains('com.google.inject:guice [2.0 -> 3.1]')
@@ -2099,14 +2099,14 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "A Kotlin rule calling a function its own build script declares still judges the report"() {
+  def "A Kotlin rule calling a function its own build script declares still applies to the report"() {
     given: 'the rule written as the README recipe is, so the lambda captures the script'
-    kotlinJudgedComposite('candidate.version.isRejected()')
+    kotlinRuledComposite('candidate.version.isRejected()')
 
     when:
     def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
 
-    then: 'the report is judged, and the cache gives way rather than the build failing to store it'
+    then: 'the rules are applied, and the cache gives way rather than the build failing to store it'
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
     !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
@@ -2115,9 +2115,9 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Unroll
-  def "A Kotlin rule reaching its build script through #holder still judges the report"() {
+  def "A Kotlin rule reaching its build script through #holder still applies to the report"() {
     given: 'the script bound into the lambda through a collection rather than through a field of it'
-    kotlinJudgedComposite(rule, locals)
+    kotlinRuledComposite(rule, locals)
 
     when:
     def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
@@ -2139,7 +2139,7 @@ final class CompositeBuildSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A Kotlin rule that reaches no build script keeps the configuration cache"() {
     given: 'the same composite, with the rule written so that it reads nothing the script declares'
-    kotlinJudgedComposite('candidate.version == rejected')
+    kotlinRuledComposite('candidate.version == rejected')
 
     when:
     def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
@@ -2156,7 +2156,7 @@ final class CompositeBuildSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "An including build's filterDeclaredConfigurations leaves out an included build's entry"() {
     given: "the child declares guice into a 'tool' configuration only the child itself could filter"
-    judgedComposite(filteringOuter())
+    ruledComposite(filteringOuter())
 
     when:
     def result = run('dependencyUpdates')
@@ -2172,7 +2172,7 @@ final class CompositeBuildSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "An including build's filterDeclaredConfigurations leaves out a merged-in entry under the cache"() {
     given: 'the same composite, run with the cache stored and then reused'
-    judgedComposite(filteringOuter())
+    ruledComposite(filteringOuter())
 
     when:
     def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
@@ -2237,7 +2237,7 @@ final class CompositeBuildSpec extends Specification {
           filterDeclaredConfigurations = Spec<String> { it.isReported() }
         }
       """.stripIndent()
-    judgedChild()
+    ruledChild()
   }
 
   /** An aggregating build that filters by a name declared only in the build it includes. */
@@ -2264,16 +2264,16 @@ final class CompositeBuildSpec extends Specification {
 
   @Unroll
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "A composite judges the same rows with the cache as without it, #declared"() {
+  def "A composite reports the same rows with the cache as without it, #declared"() {
     given: 'the rule and the aggregation coordinate declared in either order, one of them late'
-    judgedComposite(outerBody)
+    ruledComposite(outerBody)
 
     when:
     def plain = run('dependencyUpdates')
     def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
     def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
 
-    then: 'a hook that runs after the project is evaluated is still seen by the judge'
+    then: 'a hook that runs after the project is evaluated still reaches the report'
     [plain, store, hit].every { it.output.contains('com.google.inject:guice [2.0 -> 3.0]') }
     [plain, store, hit].every { !it.output.contains('com.google.inject:guice [2.0 -> 3.1]') }
 
@@ -2312,7 +2312,7 @@ final class CompositeBuildSpec extends Specification {
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A resolutionStrategy cleared after it was captured does not govern the report"() {
     given: 'a rule registered in the build script and cleared from a later hook'
-    judgedComposite(
+    ruledComposite(
       '''
         dependencies {
           dependencyUpdatesAggregation 'com.example:child:1.0'
@@ -2334,12 +2334,12 @@ final class CompositeBuildSpec extends Specification {
     when:
     def result = run('dependencyUpdates')
 
-    then: 'clearing the strategy clears what the judge would have applied along with it'
+    then: 'clearing the strategy clears what the report would have applied along with it'
     result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
-  def "A report that cannot apply its own rules warns rather than judging nothing quietly"() {
+  def "A report that cannot apply its own rules warns rather than applying nothing quietly"() {
     given: 'a strategy reading a script object as it registers, which a serialized closure may not do'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
@@ -2510,7 +2510,7 @@ final class CompositeBuildSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "The #475 snapshot exemption survives on a merged row"() {
-    given: 'a snapshot-only module in the child, exempted only when the judge rebuilds its own current version'
+    given: 'a snapshot-only module in the child, exempted only when the report rebuilds its own current version'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -2575,7 +2575,7 @@ final class CompositeBuildSpec extends Specification {
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
   def "A merged row's declared bound survives the rebuilt constraint"() {
-    given: 'a module the child bounds only through a platform, merged into a build that judges the bound'
+    given: 'a module the child bounds only through a platform, merged into a build that applies the bound'
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -2762,7 +2762,7 @@ final class CompositeBuildSpec extends Specification {
     def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
     def json = report('')
 
-    then: 'the exemption is read at the judge, so the merged row keeps the ceiling the child baked'
+    then: 'the exemption is read at the report, so the merged row keeps the ceiling the child baked'
     result.task(':dependencyUpdates').outcome == SUCCESS
     json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '3.0-Beta1'
   }
@@ -2929,7 +2929,7 @@ final class CompositeBuildSpec extends Specification {
     def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
     def json = report('')
 
-    then: "the child's unfiltered candidate is judged by the outer's rule, so the row stays up to date"
+    then: "the child's unfiltered candidate is checked by the outer's rule, so the row stays up to date"
     result.task(':dependencyUpdates').outcome == SUCCESS
     json.outdated.dependencies.every { it.name != 'guava' }
     json.current.dependencies.find { it.name == 'guava' }?.version == '15.0'

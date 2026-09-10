@@ -38,10 +38,10 @@ class ResolutionStrategyWithCurrent private constructor(
 
   /**
    * Harvests the rules a build's `resolutionStrategy` action registers rather than running them
-   * against a live resolution, so the judge can replay them over recorded candidates at the report.
-   * The seven behavior methods below become no-ops, since they act on a build's own resolution
-   * rather than on the report the judge replays rules over. [onDeprecatedBoundRead] has no default:
-   * a rule reading the deprecated bound has to be warned about at the judge as well, since a
+   * against a live resolution, so they can be replayed over recorded candidates at the report. The
+   * seven behavior methods below become no-ops, since they act on a build's own resolution rather
+   * than on the report the rules are replayed over. [onDeprecatedBoundRead] has no default: a rule
+   * reading the deprecated bound has to be warned about at the report as well, since a
    * restored configuration cache entry skips the resolution that would otherwise have warned.
    */
   internal constructor(

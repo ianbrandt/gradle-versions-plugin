@@ -389,7 +389,7 @@ final class DivergentVersionsSpec extends Specification {
     def store = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
     def hit = run([':dependencyUpdates', '--no-parallel', '--configuration-cache'])
 
-    then: 'the root caps the rows of both subprojects however the report reached the judge'
+    then: 'the root caps the rows of both subprojects however the report reached its rules'
     store.output.contains(' - com.google.inject:guice [2.0 -> 3.0]')
     store.output.count('com.google.inject:guice') == 1
     !store.output.contains('declared in')
@@ -401,7 +401,7 @@ final class DivergentVersionsSpec extends Specification {
     !hit.output.contains('declared in')
   }
 
-  def 'Reports every row when a rule the cache could not store throws at the judge'() {
+  def 'Reports every row when a rule the cache could not store throws at the report'() {
     given: 'a root rule calling a method its own script declares, which the entry cannot carry'
     writeSplitBuild([':': 'false', 'app': 'false', 'lib': 'false'])
     new File(testProjectDir.root, 'build.gradle') <<
@@ -432,7 +432,7 @@ final class DivergentVersionsSpec extends Specification {
 
   // Gradle 9 requires JVM 17.
   @IgnoreIf({ data.gradleVersion.startsWith('9') && !jvm.java17Compatible })
-  def 'Reports every row when a rule reading a script object reaches the judge under Gradle #gradleVersion'() {
+  def 'Reports every row when a rule reading a script object reaches the report under Gradle #gradleVersion'() {
     given: 'the rule shape an aggregating report is documented to support, plus a subproject rule'
     writeSplitBuild(
       [':': "project.path == ':' && it.candidate.version == '3.1'", 'app': 'false', 'lib': 'false'])
