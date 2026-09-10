@@ -9,6 +9,7 @@ import org.gradle.testkit.runner.GradleRunner
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import spock.lang.IgnoreIf
+import spock.lang.Issue
 import spock.lang.Specification
 import spock.lang.Unroll
 
@@ -151,7 +152,9 @@ final class DifferentGradleVersionsSpec extends Specification {
     ]
   }
 
-  def 'dependencyUpdates task works with dependency verification enabled'() {
+  @Unroll
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1095')
+  def 'dependencyUpdates task works with dependency verification enabled on Gradle #gradleVersion'() {
     given:
     buildFile = testProjectDir.newFile('build.gradle')
     buildFile <<
@@ -256,7 +259,7 @@ final class DifferentGradleVersionsSpec extends Specification {
     // recorded during those lookups at the next artifact access, which is the plugin's own
     // aggregation configuration.
     def result = GradleRunner.create()
-      .withGradleVersion(GradleVersions.CURRENT)
+      .withGradleVersion(gradleVersion)
       .withProjectDir(testProjectDir.root)
       .withArguments('dependencyUpdates')
       .build()
@@ -264,6 +267,10 @@ final class DifferentGradleVersionsSpec extends Specification {
     then:
     result.output.contains('com.google.inject:guice [3.0 -> 3.1]')
     result.task(':dependencyUpdates').outcome == SUCCESS
+
+    where:
+    // 8.6 is the last release that passes without the exemption; every later one needs it.
+    gradleVersion << ['8.6', '8.7', '8.14.4', GradleVersions.CURRENT]
   }
 
   def 'dependencyUpdates task completes without errors if configuration cache is enabled'() {
