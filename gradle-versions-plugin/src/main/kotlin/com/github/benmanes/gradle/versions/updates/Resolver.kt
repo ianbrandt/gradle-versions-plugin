@@ -952,15 +952,15 @@ class Resolver internal constructor(
         if (!url.isNullOrEmpty()) {
           project.logger.info("Found url for $id: $url")
           return url.trim()
-        } else {
-          val parent = getParentFromPom(file)
-          if (parent != null &&
-            "${parent.group.orEmpty()}:${parent.name}" != "org.sonatype.oss:oss-parent"
-          ) {
-            url = getProjectUrl(parent)
-            if (!url.isNullOrEmpty()) {
-              return url.trim()
-            }
+        }
+
+        val parent = getParentFromPom(file)
+        if (parent != null &&
+          "${parent.group.orEmpty()}:${parent.name}" != "org.sonatype.oss:oss-parent"
+        ) {
+          url = getProjectUrl(parent)
+          if (!url.isNullOrEmpty()) {
+            return url.trim()
           }
         }
       }
