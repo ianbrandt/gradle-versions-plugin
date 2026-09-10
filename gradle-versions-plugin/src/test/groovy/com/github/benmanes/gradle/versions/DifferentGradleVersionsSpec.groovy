@@ -152,6 +152,8 @@ final class DifferentGradleVersionsSpec extends Specification {
     ]
   }
 
+  // Gradle 9 requires JVM 17 to run, so that row is left out on the older legs of the matrix.
+  @IgnoreIf({ data.needsJava17 && !jvm.java17Compatible })
   @Unroll
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1095')
   def 'dependencyUpdates task works with dependency verification enabled on Gradle #gradleVersion'() {
@@ -270,7 +272,11 @@ final class DifferentGradleVersionsSpec extends Specification {
 
     where:
     // 8.6 is the last release that passes without the exemption; every later one needs it.
-    gradleVersion << ['8.6', '8.7', '8.14.4', GradleVersions.CURRENT]
+    gradleVersion          | needsJava17
+    '8.6'                  | false
+    '8.7'                  | false
+    '8.14.4'               | false
+    GradleVersions.CURRENT | true
   }
 
   def 'dependencyUpdates task completes without errors if configuration cache is enabled'() {
