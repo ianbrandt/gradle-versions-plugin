@@ -10,9 +10,9 @@ import org.codehaus.groovy.runtime.DefaultGroovyMethods.asBoolean
 import org.codehaus.groovy.runtime.DefaultGroovyMethods.getMetaClass
 import org.gradle.api.Action
 import org.gradle.api.Project
-import org.gradle.api.artifacts.ComponentMetadata
 import org.gradle.api.artifacts.ComponentSelection
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.ConfigurationContainer
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.DependencyConstraint
 import org.gradle.api.artifacts.ExternalDependency
@@ -36,8 +36,10 @@ import org.gradle.api.attributes.HasConfigurableAttributes
 import org.gradle.api.attributes.java.TargetJvmVersion
 import org.gradle.api.internal.artifacts.DefaultModuleVersionIdentifier
 import org.gradle.api.internal.artifacts.dependencies.DefaultProjectDependencyConstraint
+import org.gradle.api.logging.Logger
 import org.gradle.api.specs.Spec
 import java.io.File
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -54,6 +56,12 @@ class Resolver internal constructor(
   preReleaseVersionIf: Spec<String>?,
   /** The candidates exempted from both built-in checks in the build, null when none is configured. */
   exemptFromBuiltInChecksIf: ComponentFilter?,
+  /**
+   * The container that holds the settings script's classpath, which belongs to no project, so that
+   * the recording walk detaches from where the configuration came from. Null wherever it could not
+   * hold what is being resolved, which is every pass but the script classpaths of the root.
+   */
+  private val settingsConfigurations: ConfigurationContainer?,
   /** Called when a rule reads the deprecated bound, so the warning is printed once per project. */
   private val onDeprecatedBoundRead: () -> Unit,
 ) {
@@ -73,7 +81,8 @@ class Resolver internal constructor(
     rejectPreReleases = true,
     preReleaseVersionIf = null,
     exemptFromBuiltInChecksIf = null,
-    onDeprecatedBoundRead = deprecatedBoundWarning(project),
+    settingsConfigurations = null,
+    onDeprecatedBoundRead = deprecatedBoundWarning(project.logger),
   )
 
   /**
@@ -92,6 +101,11 @@ class Resolver internal constructor(
     }
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
+
+  // Every candidate a dynamic query's component-selection walk reached, as `group:name:version`,
+  // deduped in the order they arrived. Selections run concurrently, so both the set and each drain
+  // of it are synchronized.
+  internal val candidates: MutableSet<String> = Collections.synchronizedSet(LinkedHashSet())
 
   // The platform declarations whose scan threw, so a configuration inheriting the same ones does
   // not repeat a resolution already known to fail. Only a failure is shared: what a scan finds
@@ -146,6 +160,13 @@ class Resolver internal constructor(
     val current = getCurrentCoordinates(configuration, declaredKeys(), nameDeclaringConfiguration, scriptClasspath)
     val latestConfiguration = createLatestConfiguration(configuration, revision, current)
     val root = latestConfiguration.incoming.resolutionResult.root
+    // The recording pass enriches the report rather than producing it, so a failure in it costs
+    // the candidate lists alone. Letting it throw would discard every status the first-accept walk
+    // above already resolved and report the whole configuration as skipped.
+    runCatching { recordAllCandidates(configuration, current) }
+      .onFailure { e ->
+        project.logger.info("Skipping the recorded candidates of ${configuration.name}", e)
+      }
     return getStatus(current, root)
   }
 
@@ -194,26 +215,7 @@ class Resolver internal constructor(
     revision: String,
     current: CurrentCoordinates,
   ): Configuration {
-    val latest =
-      configuration.allDependencies
-        .filterIsInstance<ExternalDependency>()
-        .mapTo(mutableListOf()) { dependency ->
-          createQueryDependency(dependency as ModuleDependency, current.substitutions)
-        }
-
-    // Common use case for dependency constraints is a java-platform BOM project or to control
-    // version of transitive dependency.
-    if (supportsConstraints(configuration)) {
-      for (dependency in configuration.allDependencyConstraints) {
-        if (dependency !is DefaultProjectDependencyConstraint) {
-          latest.add(createQueryDependency(dependency))
-        }
-      }
-    }
-
-    for (source in current.platformSources) {
-      latest.add(createPlatformQueryDependency(source))
-    }
+    val latest = queryDependencies(configuration, current)
 
     val copy = configuration.copyRecursive().setTransitive(false)
 
@@ -275,6 +277,95 @@ class Resolver internal constructor(
 
     disableAutoTargetJvm(copy)
     return copy
+  }
+
+  /** Returns the `+` query dependencies used to resolve the configuration's latest versions. */
+  private fun queryDependencies(
+    configuration: Configuration,
+    current: CurrentCoordinates,
+  ): MutableList<Dependency> {
+    val latest =
+      configuration.allDependencies
+        .filterIsInstance<ExternalDependency>()
+        .mapTo(mutableListOf()) { dependency ->
+          createQueryDependency(dependency as ModuleDependency, current.substitutions)
+        }
+
+    // Common use case for dependency constraints is a java-platform BOM project or to control
+    // version of transitive dependency.
+    if (supportsConstraints(configuration)) {
+      for (dependency in configuration.allDependencyConstraints) {
+        if (dependency !is DefaultProjectDependencyConstraint) {
+          latest.add(createQueryDependency(dependency))
+        }
+      }
+    }
+
+    for (source in current.platformSources) {
+      latest.add(createPlatformQueryDependency(source))
+    }
+    return latest
+  }
+
+  /**
+   * Resolves a policy-free copy of the configuration that queries the same dynamic versions as
+   * [createLatestConfiguration] but rejects every candidate a component-selection walk reaches, so
+   * [recordCandidates] observes the complete listing rather than the prefix a first-accept walk
+   * reaches. Built from a detached configuration rather than [Configuration.copyRecursive], which
+   * copies the source configuration's `resolutionStrategy` as well: a build-script `force`,
+   * `eachDependency`, or `componentSelection` rule would then alter the facts before the rejected
+   * candidates ever reach the recording rule. Neither the revision filter nor the build's
+   * `resolutionStrategy` is applied here: facts are policy-free by definition, and a
+   * metadata-reading user predicate must never turn this walk into the far more expensive
+   * per-candidate fetch those add. The
+   * resolved result is discarded; a rejected candidate surfaces as an `UnresolvedDependencyResult`
+   * inside it, never as a thrown exception, the same tolerance [getStatus] already relies on for the
+   * first-accept walk.
+   *
+   * Runs beside [createLatestConfiguration] rather than replacing it. The verdict that walk bakes
+   * is itself a recorded fact—the newest candidate this build's own policy accepted and resolved—and
+   * the only place the revision filter, the build's configuration-level selection rules and its
+   * `force`/`eachDependency` effects are applied, none of which the aggregating task can replay over
+   * a listing. It is also where `projectUrl`, the classification of a genuine resolution failure,
+   * and the proof that a usable variant of the reported version exists come from.
+   */
+  private fun recordAllCandidates(
+    configuration: Configuration,
+    current: CurrentCoordinates,
+  ) {
+    val copy = containerOf(configuration).detachedConfiguration().setTransitive(false)
+    if (asBoolean(
+        getMetaClass(copy.resolutionStrategy)
+          .hasProperty(copy.resolutionStrategy, "failOnDynamicVersions"),
+      )
+    ) {
+      getMetaClass(copy.resolutionStrategy)
+        .setProperty(copy.resolutionStrategy, "failOnDynamicVersions", false)
+    }
+    copy.dependencies.addAll(queryDependencies(configuration, current))
+    copy.resolutionStrategy.deactivateDependencyLocking()
+    recordCandidates(copy)
+    copy.incoming.resolutionResult.root
+  }
+
+  /**
+   * Returns the container that holds the configuration, which the recording walk detaches from as a
+   * buildscript's classpath resolves against the buildscript's repositories rather than the
+   * project's. Matched by identity rather than by [ConfigurationContainer.contains], which matches
+   * by name: a settings script's classpath and a project buildscript's are both named `classpath`,
+   * so a name match sends the settings one to the project's own buildscript repositories, which a
+   * build that declares its plugins through `pluginManagement` leaves empty.
+   */
+  private fun containerOf(configuration: Configuration): ConfigurationContainer {
+    val settings = settingsConfigurations
+    if (settings != null && settings.any { it === configuration }) {
+      return settings
+    }
+    return if (project.buildscript.configurations.any { it === configuration }) {
+      project.buildscript.configurations
+    } else {
+      project.configurations
+    }
   }
 
   /** Returns a variant of the provided dependency used for querying the latest version.  */
@@ -375,6 +466,24 @@ class Resolver internal constructor(
     }
   }
 
+  /**
+   * Records every candidate a dynamic query reaches and rejects it, so the walk keeps going rather
+   * than stopping at the first one Gradle would otherwise accept. Reads only the candidate's
+   * version, never its metadata: a metadata read costs an extra request per candidate that the
+   * facts do not otherwise need.
+   */
+  private fun recordCandidates(configuration: Configuration) {
+    configuration.resolutionStrategy { strategy ->
+      strategy.componentSelection { rules ->
+        rules.all { selection ->
+          val candidate = selection.candidate
+          candidates.add("${candidate.group}:${candidate.module}:${candidate.version}")
+          selection.reject("Recorded as a fact; rejected so the walk records every candidate")
+        }
+      }
+    }
+  }
+
   /** Adds a revision filter by rejecting candidates using a component selection rule.  */
   private fun addRevisionFilter(
     configuration: Configuration,
@@ -383,13 +492,14 @@ class Resolver internal constructor(
   ) {
     configuration.resolutionStrategy { componentSelection ->
       componentSelection.componentSelection { rules ->
-        val revisionFilter = { selection: ComponentSelection, metadata: ComponentMetadata? ->
+        val revisionFilter = { selection: ComponentSelection ->
           // A module published only as a snapshot has no candidate that a milestone or release
           // revision accepts, so the version the build already uses is exempt from the check.
           // https://github.com/ben-manes/gradle-versions-plugin/issues/475
           val candidateCoordinate = Coordinate.from(selection.candidate)
           val isCurrent =
             currentCoordinates[candidateCoordinate.key]?.version == candidateCoordinate.version
+          val metadata = selection.metadata
           val accepted =
             (metadata == null) ||
               ((revision == "release") && (metadata.status == "release")) ||
@@ -402,7 +512,7 @@ class Resolver internal constructor(
         }
         rules.all { selectionAction ->
           if (ComponentSelection::class.members.any { it.name == "getMetadata" }) {
-            revisionFilter(selectionAction, selectionAction.metadata)
+            revisionFilter(selectionAction)
           }
         }
       }
@@ -1149,14 +1259,16 @@ internal fun configurationsOf(
 }
 
 /**
- * Warns once, however many rules read the deprecated bound across the project's resolutions,
- * since a rule is evaluated for every candidate of every configuration and script classpath.
+ * Warns once, however many rules read the deprecated bound across the resolutions or the report
+ * passes it is given to, since a rule is evaluated for every candidate of every configuration and
+ * script classpath. Given the logger rather than the project so that the report can warn too: the
+ * task that writes the report runs without a project on a restored configuration cache entry.
  */
-internal fun deprecatedBoundWarning(project: Project): () -> Unit {
+internal fun deprecatedBoundWarning(logger: Logger): () -> Unit {
   val warned = AtomicBoolean()
   return {
     if (warned.compareAndSet(false, true)) {
-      project.logger.warn(
+      logger.warn(
         "satisfiesDeclaredBound is deprecated; drop it from rejectVersionIf, " +
           "since rejectOutOfBounds applies the declared bound instead.",
       )

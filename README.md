@@ -886,6 +886,12 @@ the build. A top-level `fun isNonStable(version: String)` compiles to the same
 JVM signature, so keeping both fails the build with a platform declaration
 clash.
 
+In a build that merges an included build's entries, a Kotlin rule that calls a
+function declared in the build script, as the recipe above does, leaves the
+report without a configuration cache entry (see [Composite
+builds](#composite-builds)). Move the function into a compiled class there, in
+`buildSrc` or an included build. A Groovy build is unaffected.
+
 You can then configure [Component Selection
 Rules](https://docs.gradle.org/current/userguide/dynamic_versions.html#sec:component_selection_rules).
 The current version of a component can be retrieved with the `currentVersion`
@@ -1024,6 +1030,16 @@ tasks.named("dependencyUpdates").configure {
 ```
 
 </details>
+
+A rule runs a second time as the report is written, so that every row in the
+report is checked against it and not only the rows this build resolved.
+`metadata` and `getDescriptor` are null there: only the candidate versions each
+build found are recorded, not the modules behind them, and the repositories
+another build read cannot be queried from this one. A rejection a rule makes
+after reading either is ignored at that second pass, and the row stays at the
+version the build that resolved it accepted rather than being reported
+unresolved. A rule that reads only `candidate`, `currentVersion` or
+`versionConstraint` is unaffected.
 
 ##### Respecting declared bounds
 
@@ -1391,7 +1407,9 @@ Failed to compare versions for the following dependencies because they were decl
 
 Failed to determine the latest version for the following dependencies (use --info for details):
  - com.github.ben-manes:unresolvable:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable:+ as no versions of com.github.ben-manes:unresolvable are available.
  - com.github.ben-manes:unresolvable2:1.0
+     Could not find any matches for com.github.ben-manes:unresolvable2:+ as no versions of com.github.ben-manes:unresolvable2 are available.
  - com.google.guava:guava:15.0
      https://github.com/google/guava
  - dom4j:dom4j
@@ -1996,6 +2014,17 @@ hierarchy whose task set them. Configuring the root project's task therefore
 covers every project, unless a subproject configures its own (see [Task
 properties](#task-properties)).
 
+An included build merged into the report (see [Composite
+builds](#composite-builds)) is covered by most of the same settings, applied at
+the report rather than inherited. `rejectVersionIf`, `resolutionStrategy`,
+`rejectPreReleases`, `preReleaseVersionIf`, `exemptFromBuiltInChecksIf` and
+`filterDeclaredConfigurations` set on, or inherited by, the task that writes the
+report are applied to the entries merged from it, so a composite is configured
+in one place, as a multi-project build is. The settings that control what is resolved
+are the exception: `revision`, `filterConfigurations`, `checkConstraints`,
+`checkBuildEnvironmentConstraints` and `rejectOutOfBounds` are read in the build
+that resolves, and are declared in each included build.
+
 #### Composite builds
 
 An included build is a separate build with its own settings script, so its
@@ -2035,15 +2064,23 @@ tasks.register("allDependencyUpdates") {
 
 Every included build needs the plugin applied for its `dependencyUpdates` task
 to exist. A build that must stay unmodified can have the plugin injected by an
-[init script](#initialization-script) instead.
+[init script](#initialization-script) instead. Apply one version of the plugin
+across the builds a report spans: a merged report is read from what each build
+wrote, and a file written in a format newer than the reading build supports
+fails the report, and the error prints the project it came from.
 
-An included build's project can instead be merged into this build's report, by
-declaring it in the `dependencyUpdatesAggregation` configuration of the project
-that aggregates. Declare it by the coordinates that the include substitutes, and
-apply the plugin in the included build, so that a partial result exists to
-merge. Each declaration merges the one project it resolves to. A project of this
-build that the aggregating project's own tree does not cover, such as a sibling,
-is declared the same way:
+An included build's report can instead be merged into this build's report, by
+declaring the build in the `dependencyUpdatesAggregation` configuration of the
+project that aggregates. Declare it by the coordinates that the include
+substitutes, and apply the plugin in the included build, so that a report exists
+to merge. Each declaration merges the project its coordinates resolve to, and
+every project that one aggregates, where only that project was merged before. A
+build's root project aggregates its whole build, so the root's coordinates merge
+all of it, and a subproject's coordinates merge only what that subproject
+aggregates. Merging stops at that build's boundary: a build included by the
+declared build has to be declared in turn, which reaches it however deeply it is
+included by a plain `includeBuild`. A project of this build that the aggregating
+project's own tree does not cover, such as a sibling, is declared the same way:
 
 <details open>
 <summary>Kotlin</summary>
@@ -2068,6 +2105,68 @@ dependencies {
 ```
 
 </details>
+
+Whether a coordinate is substituted at all rests on two Gradle rules. A build
+included only under `pluginManagement` is not substituted from the including
+build's dependency graph, so declare a plain `includeBuild` for it in the
+aggregating settings as well. An `includeBuild` that declares a
+`dependencySubstitution` block keeps only the rules declared in it, the
+automatic `group:name` rule included, so a rule for the aggregated coordinates
+has to be declared there too. A coordinate substituted onto no project stays an
+external module and none of its entries are merged; it is printed in a warning
+rather than failing the build, so an entry left over from a build that is no
+longer included does not break the build.
+
+The task that writes the report applies its settings to every entry in it,
+including the entries an included build resolved and the entries its subprojects
+resolved. Its `rejectVersionIf` and `resolutionStrategy` rules are applied to
+those entries, `rejectPreReleases` checks them against the pre-release
+markers, the convention added with `preReleaseVersionIf` and the exception made
+with `exemptFromBuiltInChecksIf`, and `filterDeclaredConfigurations` leaves out
+the ones with a configuration name it rejects. An included build with nothing
+configured is reported under the aggregating build's rules, and an included
+build with `rejectPreReleases` switched off is still checked against it
+where its entries are merged.
+
+Within one build the pre-release check and a rule behave differently. The
+pre-release check reads the convention and the exemption inherited by the
+project that resolved the entry, so a subproject with its own
+`preReleaseVersionIf` or `exemptFromBuiltInChecksIf` keeps that answer in the
+report above it. A `rejectVersionIf` or `resolutionStrategy` rule is policy
+applied at the report instead, so the aggregating report's rules reach every
+entry, its subprojects' entries included.
+
+The report only narrows what a build reported. The version an entry shows is the
+newest one the producing build's resolution accepted, so an aggregating build
+can move an entry to an older version and never to a newer one. An included
+build with stricter rules caps what the merged report shows for the coordinates
+declared in it.
+
+This applies to a subproject as well. Where the project the report is asked for
+rejects a version that a subproject accepts, the older version is shown for
+every project, and two entries that a per-project rule would have split apart
+are shown as one.
+
+An entry the report moved to an older version was never resolved at that
+version. The candidates come from a repository listing, so the version satisfied
+both builds' rules, and no resolution proved that a usable variant of it exists.
+The version accepted in the producing build is the one that build resolved.
+
+The settings that control what is resolved apply in the build that resolves it:
+`revision`, `filterConfigurations`, `checkConstraints`,
+`checkBuildEnvironmentConstraints` and `rejectOutOfBounds`. Declare those in
+each included build. The Gradle update check is
+read from the report being asked for, so `checkForGradleUpdate` and
+`gradleReleaseChannel` set in a merged build do not reach it.
+
+A report that applies its rules to another build's entries stores those rules in
+the configuration cache. A Kotlin rule that calls a function declared in the
+same build script captures the script itself, which the cache cannot store, so
+the entry is discarded and a warning prints the project. Declare the rule's
+helpers as a compiled class, in `buildSrc` or an included build, to keep the
+entry. A helper declared beside the rule in a precompiled script plugin does not
+qualify: that script's top level functions are members of it, so the rule
+captures that script instead. A Groovy closure is unaffected.
 
 #### Per-project reports
 
@@ -2355,10 +2454,11 @@ and *Note*s are things worth knowing that need no action.
 
 In the next release, a pre-release candidate is left out of the report unless
 the current version is itself a pre-release, the report is held to the bounds
-written in the build without a rule written for it, and a coordinate with one
+written in the build without a rule written for it, a coordinate with one
 declared version and different latest versions across the aggregated projects
 is shown on one entry per latest version, where the entries were merged into
-the newest of them before:
+the newest of them before, and an aggregating report applies its settings to
+the entries merged from an included build:
 
 > [!IMPORTANT]
 > - A dependency with no newer release, only a newer pre-release, is now
@@ -2377,6 +2477,22 @@ the newest of them before:
 >   `projects` (see [Multi-project builds](#multi-project-builds)), which is
 >   what distinguishes them. A tool that keys the entries by group and name
 >   alone has to key them by the projects as well.
+> - A `dependencyUpdatesAggregation` entry now merges every project of the build
+>   it declares, where only the project its coordinates resolved to was merged
+>   before. A composite that declared every project of an included build can
+>   declare the build alone (see [Composite builds](#composite-builds)).
+> - The aggregating report's `rejectVersionIf`, `resolutionStrategy`,
+>   `rejectPreReleases`, `preReleaseVersionIf`, `exemptFromBuiltInChecksIf`
+>   and `filterDeclaredConfigurations` are applied to every entry in it, both the
+>   ones an included build resolved and the ones its subprojects resolved. An
+>   entry can show an older version, or not appear at all, where the included
+>   build's or the subproject's own settings settled it before. Where the project
+>   the report is asked for rejects a version a subproject accepts, two entries
+>   that a per-project rule would have split apart are shown as one.
+> - The configuration cache entry is discarded for a report that merges an
+>   included build's entries, where a Kotlin rule calls a function declared in
+>   the same build script. Move the function into a compiled class, in `buildSrc`
+>   or an included build, to keep the entry. A Groovy build is unaffected.
 
 > [!TIP]
 > - The `isNonStable` recipe formerly recommended here can be dropped, along with
@@ -2416,6 +2532,10 @@ the newest of them before:
 >   declares the module. Once the entries are split, that project is on an entry
 >   of its own, so the line is printed again (see [Report
 >   format](#report-format)).
+> - An entry the report moved to an older version under the aggregating build's
+>   rules shows a version no build resolved. The version a build accepts came
+>   through that build's full status-aware verdict, and a version below it did
+>   not.
 
 ### v0.60.0
 

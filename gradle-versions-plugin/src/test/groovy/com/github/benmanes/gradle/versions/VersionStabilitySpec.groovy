@@ -10,12 +10,15 @@ import spock.lang.Specification
 import spock.lang.Unroll
 
 /**
- * A specification for the pre-release predicate. The cases are drawn from a survey of every
- * published version of 1,870 widely used artifacts on Maven Central, Google's Maven repository,
- * Clojars and the Gradle Plugin Portal.
- * https://github.com/ben-manes/gradle-versions-plugin/issues/440
+ * A specification for the pre-release predicate, and for the string stability predicate that
+ * {@code revision} consults in place of a dependency's (often absent) published status. The
+ * pre-release cases are drawn from a survey of every published version of 1,870 widely used
+ * artifacts on Maven Central, Google's Maven repository, Clojars and the Gradle Plugin Portal.
  */
-@Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+@Issue([
+  'https://github.com/ben-manes/gradle-versions-plugin/issues/440',
+  'https://github.com/ben-manes/gradle-versions-plugin/issues/550',
+])
 final class VersionStabilitySpec extends Specification {
   @Unroll
   def 'a pre-release marker is matched in #version'() {
@@ -194,6 +197,77 @@ final class VersionStabilitySpec extends Specification {
     // A release variant is a release on both sides, so nothing is withheld either way.
     '10.2.0.jre8'    | '10.2.0.jre11'     || false
     '1.1.17.SP1'     | '1.1.17.SP2'       || false
+  }
+
+  @Unroll
+  def 'milestone rejects #version'() {
+    expect:
+    !VersionStability.accepts('milestone', version)
+
+    where:
+    version << ['2.5-SNAPSHOT', '2.5-20240101.120000-1']
+  }
+
+  // 'release' and 'milestone' now behave identically (accept anything but a snapshot), so this
+  // table also covers the version strings that once had a dedicated 'release accepts' table
+  // for the stable-pattern predicate now removed: a Beta/rc/M1/RC1 pre-release string, and the
+  // jre/android/Ivy-r/v-prefix/Final/RELEASE strings that predicate special-cased.
+  @Unroll
+  def 'milestone accepts #version'() {
+    expect:
+    VersionStability.accepts('milestone', version)
+
+    where:
+    version << [
+      '2.4.20-Beta2',
+      '1.0-rc1',
+      '3.0.0-M1',
+      '3.0.0-RC1',
+      '13.4.0.jre11',
+      '12.10.0.jre8',
+      '33.6.0-jre',
+      '33.6.0-android',
+      '5.13.0.202109080827-r',
+      'v1.2.3',
+      '1.0.0.Final',
+      '1.0.0-RELEASE',
+    ]
+  }
+
+  @Unroll
+  def 'integration accepts #version'() {
+    expect:
+    VersionStability.accepts('integration', version)
+
+    where:
+    version << [
+      '2.4.20-Beta2',
+      '1.0-rc1',
+      '3.0.0-M1',
+      '3.0.0-RC1',
+      '2.5-SNAPSHOT',
+      '2.5-20240101.120000-1',
+      '13.4.0.jre11',
+      'v1.2.3',
+    ]
+  }
+
+  @Unroll
+  def '"none" is accepted at every revision level (#revision)'() {
+    expect:
+    VersionStability.accepts(revision, 'none')
+
+    where:
+    revision << ['release', 'milestone', 'integration']
+  }
+
+  @Unroll
+  def 'an unknown revision value accepts everything (#version)'() {
+    expect:
+    VersionStability.accepts('bogus', version)
+
+    where:
+    version << ['2.5-SNAPSHOT', '2.4.20-Beta2', '13.4.0.jre11']
   }
 
   private ComponentSelection selectionOf(String version) {

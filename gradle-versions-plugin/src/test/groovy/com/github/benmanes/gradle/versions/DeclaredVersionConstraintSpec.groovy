@@ -214,8 +214,12 @@ final class DeclaredVersionConstraintSpec extends Specification {
     when:
     def result = run()
 
-    then: 'one warning, not one per candidate and not one per resolution'
-    result.output.count('satisfiesDeclaredBound is deprecated') == 1
+    then: 'one warning for the resolutions together, and one for the report that replays them'
+    result.output.count('satisfiesDeclaredBound is deprecated') == 2
+
+    and: 'the second is the report replaying the same rule, not a second resolution'
+    result.output.split('> Task :dependencyUpdates')[1]
+      .count('satisfiesDeclaredBound is deprecated') == 1
   }
 
   def 'the default bound filter reads no deprecated member, so nothing is warned'() {
@@ -591,6 +595,70 @@ final class DeclaredVersionConstraintSpec extends Specification {
 
     then: 'a bound the resolved version already lies outside is not applied, so the upgrade is listed'
     result.output.contains('com.google.inject:guice [3.0 -> 7.0.0]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/755')
+  def 'a merged script classpath row is bounded by the range its own build declared'() {
+    given: 'an included build declaring a classpath range, merged into a report with a rule bounding it'
+    testProjectDir.newFile('settings.gradle') <<
+      """
+        rootProject.name = 'root'
+        includeBuild 'child'
+      """.stripIndent()
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'java-library'
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+          rejectOutOfBounds = false
+          rejectVersionIf {
+            isOutOfDeclaredBounds()
+          }
+        }
+      """.stripIndent()
+
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+          configurations.create('probeClasspath')
+          dependencies {
+            classpath files($classpathString)
+            probeClasspath 'com.google.inject:guice:[2.0, 3.0['
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+          rejectOutOfBounds = false
+        }
+      """.stripIndent()
+
+    when:
+    def result = run()
+
+    then: 'the merged row stops inside the range, as a row this build resolved itself does'
+    result.output.contains(' - com.google.inject:guice:2.2')
+    !result.output.contains('com.google.inject:guice [2.2 -> ')
   }
 
   def 'a module with no declared bound is not bounded'() {

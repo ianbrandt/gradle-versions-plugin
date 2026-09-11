@@ -80,4 +80,21 @@ internal object VersionStability {
     } else {
       { version -> isPreRelease(version) || convention.isSatisfiedBy(version.substringBefore('+')) }
     }
+
+  /** Returns whether [version] is acceptable under the given [revision] level. */
+  @JvmStatic
+  fun accepts(
+    revision: String,
+    version: String,
+  ): Boolean {
+    if (version == "none") return true
+    return when (revision) {
+      "integration" -> true
+      "milestone", "release" -> !isIntegrationGrade(version)
+      else -> true
+    }
+  }
+
+  private fun isIntegrationGrade(version: String): Boolean =
+    version.contains("SNAPSHOT", ignoreCase = true) || TIMESTAMPED_SNAPSHOT.containsMatchIn(version)
 }

@@ -3,6 +3,14 @@ package com.github.benmanes.gradle.versions.updates
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
+/** A declared `VersionConstraint`, serialized as its four getters verbatim; empty when unset. */
+data class ConstraintInfo(
+  val required: String,
+  val strict: String,
+  val preferred: String,
+  val rejected: List<String>,
+)
+
 /** One dependency's status, as observed by a single project. */
 data class PartialStatus
   @JvmOverloads
@@ -38,6 +46,16 @@ data class PartialStatus
      * the whole report rather than about the project whose producer wrote this status.
      */
     @Transient val splitByLatest: Boolean = false,
+    /** The constraint declared for this module, null when no declaration covers it. */
+    val constraint: ConstraintInfo? = null,
+    /** The constraints declared for this module by the platforms its consumer depends on. */
+    val platformConstraints: List<ConstraintInfo> = emptyList(),
+    /**
+     * Whether the build declared this module on a script classpath, which is what lets a dynamic
+     * required version be read as a bound. Trails for the same reason as [platformProjects].
+     * https://github.com/ben-manes/gradle-versions-plugin/issues/755
+     */
+    val onScriptClasspath: Boolean = false,
   ) {
     val coordinate: Coordinate
       get() = Coordinate(group, name, declaredVersion, userReason, divergentLatest)
@@ -114,6 +132,31 @@ data class PartialStatus
         group, name, declaredVersion, userReason, latestVersion, projectUrl, unresolved, contributed,
         configurations, projectPath, platformProjects, constrainedBy, splitByLatest,
       )
+
+    /**
+     * Keeps the `copy` a release shipped callable. The generated one no longer is, now that the
+     * declared and platform constraints moved it past thirteen parameters.
+     */
+    fun copy(
+      group: String = this.group,
+      name: String = this.name,
+      declaredVersion: String = this.declaredVersion,
+      userReason: String? = this.userReason,
+      latestVersion: String = this.latestVersion,
+      projectUrl: String? = this.projectUrl,
+      unresolved: UnresolvedInfo? = this.unresolved,
+      contributed: Boolean = this.contributed,
+      configurations: List<String> = this.configurations,
+      projectPath: String? = this.projectPath,
+      platformProjects: List<String> = this.platformProjects,
+      constrainedBy: List<String> = this.constrainedBy,
+      splitByLatest: Boolean = this.splitByLatest,
+    ): PartialStatus =
+      copy(
+        group, name, declaredVersion, userReason, latestVersion, projectUrl, unresolved, contributed,
+        configurations, projectPath, platformProjects, constrainedBy, splitByLatest, constraint,
+        platformConstraints,
+      )
   }
 
 /** A resolution failure, as a value that survives the project boundary. */
@@ -144,6 +187,8 @@ data class PartialResult
     val statuses: List<PartialStatus>,
     val buildscriptStatuses: List<PartialStatus>,
     val skipped: List<SkippedInfo> = emptyList(),
+    /** Every candidate version a dynamic query reached, as `group:name:version`. */
+    val candidates: List<String> = emptyList(),
   ) {
     fun toJson(): String = adapter.toJson(this)
 
@@ -156,14 +201,15 @@ data class PartialResult
       projectPath: String = this.projectPath,
       statuses: List<PartialStatus> = this.statuses,
       buildscriptStatuses: List<PartialStatus> = this.buildscriptStatuses,
-    ): PartialResult = copy(formatVersion, projectPath, statuses, buildscriptStatuses, skipped)
+    ): PartialResult = copy(formatVersion, projectPath, statuses, buildscriptStatuses, skipped, candidates)
 
     companion object {
       /**
        * Bumped when the shape changes incompatibly; a field with a compatible default reads from an
-       * older partial as that default.
+       * older partial as that default. 2 records every candidate a dynamic query reaches rather
+       * than only the accepted one, plus the declared and platform-supplied constraints.
        */
-      const val FORMAT_VERSION: Int = 1
+      const val FORMAT_VERSION: Int = 2
 
       private val adapter =
         Moshi.Builder()
@@ -175,8 +221,10 @@ data class PartialResult
       @JvmStatic
       fun fromJson(json: String): PartialResult {
         val result = requireNotNull(adapter.fromJson(json)) { "Empty partial result" }
-        require(result.formatVersion == FORMAT_VERSION) {
-          "Unsupported partial result format ${result.formatVersion}, expected $FORMAT_VERSION; re-run the build"
+        require(result.formatVersion in 1..FORMAT_VERSION) {
+          "Unsupported partial result format ${result.formatVersion} for '${result.projectPath}', " +
+            "expected 1..$FORMAT_VERSION. It was written by a newer version of the plugin than the " +
+            "report reading it; apply one version of the plugin across every project and included build."
         }
         return result
       }

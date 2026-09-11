@@ -100,6 +100,26 @@ final class RejectVersionIfSpec extends Specification {
     report.unresolved.dependencies.isEmpty()
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def 'a predicate reading metadata reports what this build resolved with the real metadata'() {
+    given: 'a predicate that rejects on the null metadata every recorded candidate answers with'
+    buildFile = writeBuildFile('metadata == null')
+
+    when:
+    def result = GradleRunner.create()
+      .withProjectDir(testProjectDir.root)
+      .withArguments('dependencyUpdates')
+      .withPluginClasspath()
+      .build()
+    def report = new JsonSlurper().parseText(new File(reportFolder, 'report.json').text)
+
+    then: 'the rejection is the record keeping no metadata, not the policy, so the row is unchanged'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    report.outdated.dependencies*.name == ['guava']
+    report.outdated.dependencies[0].available.milestone == '16.0'
+    report.unresolved.dependencies.isEmpty()
+  }
+
   def 'explicit parameter form continues to resolve candidate'() {
     given:
     buildFile = writeBuildFile("s -> s.candidate.version.toLowerCase().contains('-zzz')")
@@ -355,6 +375,51 @@ final class RejectVersionIfSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     closureState.startsWith("${Closure.OWNER_FIRST}|")
     !closureState.contains('ComponentSelectionWithCurrent')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "a component selection rule on the build's own configuration still caps the report"() {
+    given: 'a configuration-level rule rejects the 16.0 line, and a rejectVersionIf targeting another ' +
+      'dependency forces the report to replay rules over every row, guava included'
+    buildFile = writeScript('''
+      dependencies {
+        implementation 'com.google.inject:guice:2.0'
+      }
+
+      configurations.all {
+        resolutionStrategy {
+          componentSelection {
+            all { selection ->
+              if (selection.candidate.version.startsWith('16.')) {
+                selection.reject('Not yet adopted')
+              }
+            }
+          }
+        }
+      }
+
+      tasks.named('dependencyUpdates').configure {
+        outputFormatter = 'json'
+        checkForGradleUpdate = false
+        rejectVersionIf {
+          candidate.group == 'com.google.inject' && candidate.version == '3.1'
+        }
+      }
+      ''')
+
+    when:
+    def result = GradleRunner.create()
+      .withProjectDir(testProjectDir.root)
+      .withArguments('dependencyUpdates')
+      .withPluginClasspath()
+      .build()
+    def report = new JsonSlurper().parseText(new File(reportFolder, 'report.json').text)
+
+    then: 'guava stays capped below every 16.0 candidate the report replays rules over, and guice stops at 3.0'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    report.current.dependencies*.name == ['guava']
+    report.outdated.dependencies*.name == ['guice']
+    report.outdated.dependencies[0].available.milestone == '3.0'
   }
 
   def 'an unresolved dependency is printed with the cause that failed it'() {

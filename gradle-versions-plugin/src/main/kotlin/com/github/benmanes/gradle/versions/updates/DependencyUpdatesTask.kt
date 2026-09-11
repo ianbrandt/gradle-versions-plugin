@@ -16,6 +16,7 @@ import org.gradle.api.artifacts.Configuration
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.SetProperty
 import org.gradle.api.specs.Spec
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -329,9 +330,17 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
       // is made rather than when the task executes.
       if (value != null) {
         // Written directly rather than through resolutionStrategy(Action), which clears this
-        // property and would leave it reading back as unset.
+        // property and would leave it reading back as unset. Applied by delegating a copy of the
+        // closure rather than by project.configure, since that reads Task.project, which the
+        // configuration cache forbids at execution, and execution is where the report applies this.
         parameters.resolutionStrategy =
-          Action<ResolutionStrategyWithCurrent> { current -> project.configure(current, value) }
+          Action<ResolutionStrategyWithCurrent> { current ->
+            @Suppress("UNCHECKED_CAST")
+            val configure = value.clone() as Closure<Any>
+            configure.resolveStrategy = Closure.DELEGATE_FIRST
+            configure.delegate = current
+            configure.call(current)
+          }
         parameters.resolutionStrategySet = true
         logger.warn(
           "dependencyUpdates.resolutionStrategy: " +
@@ -352,6 +361,14 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   /** The build tree paths expected to contribute partial results, wired by the plugin. */
   @Internal
   var aggregatedProjectPaths: Set<String> = emptySet()
+
+  /**
+   * The aggregation coordinates that Gradle substituted onto no project, wired by the plugin from
+   * the resolution result of the configuration the partial results are collected from.
+   */
+  @get:Internal
+  val unaggregatedCoordinates: SetProperty<String> =
+    project.objects.setProperty(String::class.java)
 
   /**
    * The directory the partial results are collected under, wired by the plugin only where it can
@@ -382,10 +399,41 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   val projectDirectory: DirectoryProperty =
     project.objects.directoryProperty().convention(project.layout.projectDirectory)
 
+  /** Whether this report's own rules have already been reported as unstorable in the cache. */
+  private var rulesWithheldFromCache = false
+
   init {
     description = "Displays the dependency updates for the project."
     group = "Help"
     outputs.upToDateWhen { false }
+    parameters.onSettingStored = { captured -> withholdRulesFromCache(captured) }
+  }
+
+  /**
+   * Discards the configuration cache entry where a report's own rules reach their own build
+   * script, which the cache cannot serialize. Discarding the entry keeps the report correct and the
+   * build running, where storing it would fail outright and there is no way to turn the cache off
+   * under isolated projects.
+   *
+   * Only a Kotlin script is withheld for: a Groovy closure reaches its script as well, and is
+   * serialized by substituting the owner, so those reports keep their entry.
+   * https://github.com/ben-manes/gradle-versions-plugin/issues/1058
+   */
+  private fun withholdRulesFromCache(captured: Any?) {
+    if (rulesWithheldFromCache || !holdsKotlinScript(captured)) {
+      return
+    }
+    rulesWithheldFromCache = true
+    notCompatibleWithConfigurationCache(
+      "A rule applied to another build's dependency updates reads this build's script.",
+    )
+    logger.warn(
+      "The configuration cache entry for the dependency updates report of $projectPath was " +
+        "discarded: a rejectVersionIf, resolutionStrategy or filterDeclaredConfigurations rule " +
+        "reads a declaration from the build script, which the cache cannot store where the report " +
+        "applies its rules to another build's dependencies. Declare the rule's helpers as a " +
+        "compiled class, in buildSrc or an included build, to keep the entry.",
+    )
   }
 
   /** Merges the partial results of every project and writes the report. */
@@ -431,15 +479,53 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
           "group and name are aggregated as one.",
       )
     }
+    val unaggregated = unaggregatedCoordinates.get()
+    if (unaggregated.isNotEmpty()) {
+      logger.warn(
+        "Left out of the dependency updates report: ${unaggregated.joinToString(", ")}, " +
+          "which resolved to an external module rather than to a project. A build included only " +
+          "under pluginManagement is not substituted from the including build's dependency graph, " +
+          "so declare a plain includeBuild for these coordinates as well. An includeBuild that " +
+          "declares a dependencySubstitution block keeps only the rules declared in it, so declare " +
+          "a rule for these coordinates there too.",
+      )
+    }
+    val candidatesByProjectPath = partials.associate { it.projectPath to it.candidates }
+    // The configuration cache restores the task without the strategy the producers read, so the
+    // copy that survives it is read where the live property is gone.
+    val strategy: Action<in ResolutionStrategyWithCurrent>? =
+      parameters.resolutionStrategy ?: parameters.storedResolutionStrategy
+    // The built-in check is applied here only where this report merges a row some other policy
+    // resolved, which is the same condition that stores the convention and the exemption for the
+    // report. Everywhere else the producers already applied the identical check, under the settings
+    // they inherited, so applying it again would add nothing and would read the two predicates from
+    // properties that are gone from a restored cache entry.
+    val mergesRowsResolvedElsewhere = parameters.mergesRowsResolvedElsewhere
+    val reportRules =
+      ReportRules(
+        strategy,
+        logger,
+        revision,
+        mergesRowsResolvedElsewhere && rejectPreReleases,
+        parameters.preReleaseVersionIf ?: parameters.storedPreReleaseVersionIf,
+        parameters.exemptFromBuiltInChecksIf ?: parameters.storedExemptFromBuiltInChecksIf,
+      )
+    // Read from the copy that survives the cache rather than the live property, which is gone by
+    // here on a restored entry. The copy is filled only for a report that merges in another build's
+    // rows, so a build that aggregates nobody is left with what its producers already filtered.
+    val declaredFilter = parameters.storedFilterDeclaredConfigurations
+    val projectRows =
+      partials
+        .flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } }
+        .filter { declaredFilter.keeps(it) }
+    val buildscriptRows =
+      partials
+        .flatMap { partial ->
+          partial.buildscriptStatuses.map { it.copy(projectPath = partial.projectPath) }
+        }.filter { declaredFilter.keeps(it) }
     val statuses =
-      mergeStatuses(
-        partials.flatMap { partial -> partial.statuses.map { it.copy(projectPath = partial.projectPath) } },
-      ) +
-        mergeStatuses(
-          partials.flatMap { partial ->
-            partial.buildscriptStatuses.map { it.copy(projectPath = partial.projectPath) }
-          },
-        )
+      mergeStatuses(reportRules.applyTo(projectRows, candidatesByProjectPath)) +
+        mergeStatuses(reportRules.applyTo(buildscriptRows, candidatesByProjectPath))
     val skipped =
       partials
         .flatMap { partial -> partial.skipped.map { SkippedConfiguration(partial.projectPath, it.name, it.reason) } }
@@ -577,3 +663,13 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     outputFormatterArgument = OutputFormatterArgument.CustomAction(action)
   }
 }
+
+/**
+ * Whether [status] survives the report's declared-configuration filter, matching the rule the
+ * producer applies: an entry with no configuration on it, as an ordinary declaration's is, is kept
+ * whatever the filter rejects. A null filter means nothing is configured on this report.
+ */
+private fun Spec<String>?.keeps(status: PartialStatus): Boolean =
+  this == null ||
+    status.configurations.isEmpty() ||
+    status.configurations.any { isSatisfiedBy(it) }

@@ -14,6 +14,9 @@ import spock.lang.Unroll
 
 @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1004')
 final class CompositeBuildSpec extends Specification {
+  /** A Kotlin lambda calling a function the build script declares, so that it holds the script. */
+  private static final String REJECTOR = '{ v: String -> v.isRejected() }'
+
   @Rule final TemporaryFolder testProjectDir = new TemporaryFolder()
   private String classpathString
   private String mavenRepoUrl
@@ -470,6 +473,342 @@ final class CompositeBuildSpec extends Specification {
     then:
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+  }
+
+  def 'Aggregates every project of an included build named by its coordinates'() {
+    given:
+    aggregatedIncludedBuild("dependencyUpdatesAggregation 'com.example:child:1.0'")
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+  }
+
+  def 'Aggregates what a named project of an included build aggregates, not its whole build'() {
+    given:
+    aggregatedIncludedBuild("dependencyUpdatesAggregation 'com.example:sub:1.0'")
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    // ':child:sub' declares this one, and aggregates no project of its own.
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+    // The child's root project declares this one. An entry for a subproject leaves the root out,
+    // where an entry for the root merges the subproject as well: a declaration reaches what that
+    // project aggregates, and only a build's root project aggregates the whole build.
+    !result.output.contains('com.google.guava')
+  }
+
+  def 'Aggregates an included build from a Kotlin build script'() {
+    given: "the README's Kotlin snippet, where the typed accessor exists only if the plugin created the configuration first"
+    testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
+    testProjectDir.newFile('build.gradle.kts') <<
+      """
+        plugins {
+          id("io.github.ben-manes.versions")
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation("com.example:child:1.0")
+        }
+      """.stripIndent()
+    coordinatedChild()
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
+  }
+
+  def 'Aggregates an included build from a report the settings plugin registered'() {
+    given: 'the aggregating build applies from its settings, while the included build applies per project'
+    testProjectDir.newFile('settings.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions.settings'
+        }
+
+        includeBuild 'child'
+      """.stripIndent()
+    testProjectDir.newFile('build.gradle') <<
+      """
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+      """.stripIndent()
+    coordinatedChild()
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
+  }
+
+  def "Applies the aggregating report's settings to an included build with none of its own"() {
+    given: 'a child declaring a module with a pre-release string as its ceiling, and no rules of its own'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+          revision = 'release'
+          rejectVersionIf {
+            candidate.version.contains('-')
+          }
+        }
+      """.stripIndent()
+    coordinatedChild('com.probe:unstable-ceiling:1.0')
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the child's row is held to the report's own rule, not to the defaults it was resolved under"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.probe:unstable-ceiling [1.0 -> 2.0]')
+  }
+
+  /** Writes an included build that publishes by the coordinates an aggregation entry declares. */
+  private void coordinatedChild(String dependency = 'com.google.guava:guava:15.0') {
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'\n"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool '${dependency}'
+        }
+      """.stripIndent()
+  }
+
+  def 'Reports a project of an included build once when named with the build it belongs to'() {
+    given:
+    aggregatedIncludedBuild(
+      """
+        dependencyUpdatesAggregation 'com.example:child:1.0'
+        dependencyUpdatesAggregation 'com.example:sub:1.0'
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.count('com.example:jvm-library [1.0 -> 2.0]') == 1
+  }
+
+  // The results are published as the graph edges rather than as the files the aggregate collected,
+  // which Gradle 9 will not resolve for a consumer without a lock on the included build.
+  // Gradle 9 requires JVM 17.
+  @Requires({ jvm.java17Compatible })
+  @Unroll
+  def 'Aggregates every project of an included build on Gradle #gradleVersion'() {
+    given:
+    aggregatedIncludedBuild("dependencyUpdatesAggregation 'com.example:child:1.0'")
+
+    when:
+    def result = GradleRunner.create()
+      .withGradleVersion(gradleVersion)
+      .withProjectDir(testProjectDir.root)
+      .withArguments('dependencyUpdates')
+      .withPluginClasspath()
+      .build()
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+
+    where:
+    gradleVersion << ['9.0.0', '9.6.1']
+  }
+
+  def 'Aggregates two projects of an included build with the same group and name'() {
+    given:
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') <<
+      """
+        rootProject.name = 'child'
+        include 'a:common', 'b:common'
+      """.stripIndent()
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        allprojects {
+          group = 'com.example'
+          version = '1.0'
+
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+
+          configurations.create('tool') {
+            canBeResolved = true
+            canBeConsumed = false
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child', 'a', 'common')
+    testProjectDir.newFile('child/a/common/build.gradle') <<
+      """
+        dependencies {
+          tool 'com.google.guava:guava:15.0'
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child', 'b', 'common')
+    testProjectDir.newFile('child/b/common/build.gradle') <<
+      """
+        dependencies {
+          tool 'com.example:jvm-library:1.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+  }
+
+  def 'Aggregates an included build that writes its results to a custom build directory'() {
+    given:
+    aggregatedIncludedBuild(
+      "dependencyUpdatesAggregation 'com.example:child:1.0'",
+      'layout.buildDirectory = layout.projectDirectory.dir("out-of-tree")',
+    )
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then:
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
+    result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+    // Asserted so that the case still distinguishes if the override ever stops taking effect: the
+    // results are resolved as artifacts, so a build directory the aggregator cannot guess is moot.
+    new File(testProjectDir.root, 'child/out-of-tree').directory
+    !new File(testProjectDir.root, 'child/build').exists()
+  }
+
+  /** Writes a build that aggregates an included build of two projects, each with an update. */
+  private void aggregatedIncludedBuild(String aggregated, String childSettings = '') {
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          ${aggregated}
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') <<
+      """
+        rootProject.name = 'child'
+        include 'sub'
+      """.stripIndent()
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        allprojects {
+          group = 'com.example'
+          version = '1.0'
+
+          repositories {
+            maven {
+              url '${mavenRepoUrl}'
+            }
+          }
+
+          configurations.create('tool') {
+            canBeResolved = true
+            canBeConsumed = false
+          }
+
+          ${childSettings}
+        }
+
+        dependencies {
+          tool 'com.google.guava:guava:15.0'
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child', 'sub')
+    testProjectDir.newFile('child/sub/build.gradle') <<
+      """
+        dependencies {
+          tool 'com.example:jvm-library:1.0'
+        }
+      """.stripIndent()
   }
 
   def 'Reports the platform that an included build platform imports'() {
@@ -1160,7 +1499,7 @@ final class CompositeBuildSpec extends Specification {
     when:
     def result = run('dependencyUpdates')
 
-    then: 'one merged row names the platform-stated version and the update the drag cannot hide'
+    then: 'one merged row shows the platform-stated version and the update behind the drag'
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.output.contains('com.example:external-bom [1.0 -> 2.0]')
     result.output.contains('imported by the platform :platform-a\n')
@@ -1475,5 +1814,1190 @@ final class CompositeBuildSpec extends Specification {
   private def report(String path) {
     return new JsonSlurper()
       .parse(new File(testProjectDir.root, "${path}build/dependencyUpdates/report.json"))
+  }
+
+  private void ruledComposite(
+    String outerBody =
+      """
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.1'
+          }
+        }
+      """) {
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        ${outerBody}
+      """.stripIndent()
+    ruledChild()
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An aggregation entry does not reach the build that its declared build includes"() {
+    given: "an entry for the child alone at the root, and an entry for the grandchild in the child"
+    nestedComposite(false)
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the child build's projects are merged from the entry, and nothing past that build's boundary"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice')
+    !result.output.contains('com.google.guava:guava')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An aggregation entry declares an included build of an included build"() {
+    given: 'the same tree, with the root naming the grandchild build as well'
+    nestedComposite(true)
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: 'a build anywhere in the tree is reached by naming it, however deeply it is included'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice')
+    result.output.contains('com.google.guava:guava')
+  }
+
+  /** A root including a child that itself includes and aggregates a grandchild. */
+  private void nestedComposite(boolean namesGrandchild) {
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+          ${namesGrandchild ? "dependencyUpdatesAggregation 'com.example:grandchild:1.0'" : ''}
+        }
+      """.stripIndent()
+
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') <<
+      "rootProject.name = 'child'\nincludeBuild 'grandchild'"
+    testProjectDir.newFile('child/build.gradle') << aggregatingBuild('child', 'grandchild',
+      "com.google.inject:guice:2.0")
+
+    testProjectDir.newFolder('child', 'grandchild')
+    testProjectDir.newFile('child/grandchild/settings.gradle') << "rootProject.name = 'grandchild'"
+    testProjectDir.newFile('child/grandchild/build.gradle') << aggregatingBuild('grandchild', null,
+      "com.google.guava:guava:15.0")
+  }
+
+  /** A build that applies the plugin, declares [dependency], and aggregates [aggregated] if named. */
+  private String aggregatingBuild(String name, String aggregated, String dependency) {
+    return """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool '${dependency}'
+          ${aggregated == null ? '' : "dependencyUpdatesAggregation 'com.example:${aggregated}:1.0'"}
+        }
+      """.stripIndent()
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A Kotlin rule calling a buildSrc helper keeps the configuration cache"() {
+    given: 'the helper moved out of the build script, which is the remedy printed in the warning'
+    kotlinRuledComposite('candidate.version.isRejected()')
+    testProjectDir.newFolder('buildSrc', 'src', 'main', 'java')
+    testProjectDir.newFile('buildSrc/src/main/java/Stability.java') <<
+      """
+        public final class Stability {
+          public static boolean isRejected(String version) {
+            return "3.1".equals(version);
+          }
+        }
+      """.stripIndent()
+    def script = new File(testProjectDir.root, 'build.gradle.kts')
+    script.text = script.text
+      .replace('fun String.isRejected(): Boolean = this == "3.1"', '')
+      .replace('candidate.version.isRejected()', 'Stability.isRejected(candidate.version)')
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the rule reaches a compiled class rather than the script, so the entry is stored and reused'
+    store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !store.output.contains('Configuration cache entry discarded')
+    hit.output.contains('Reusing configuration cache')
+    hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+  }
+
+  /**
+   * The same composite with a Kotlin build script, where the rule is written as the README's recipe
+   * is: a call to a function the script declares. Such a call binds the script into the lambda.
+   */
+  private void kotlinRuledComposite(String rule, String locals = 'val rejected = "3.1"') {
+    testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
+    testProjectDir.newFile('build.gradle.kts') <<
+      """
+        import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
+
+        buildscript {
+          dependencies {
+            classpath(files(${classpathString.replace("'", '"')}))
+          }
+        }
+
+        apply(plugin = "io.github.ben-manes.versions")
+
+        fun String.isRejected(): Boolean = this == "3.1"
+
+        dependencies {
+          add("dependencyUpdatesAggregation", "com.example:child:1.0")
+        }
+
+        tasks.named("dependencyUpdates", DependencyUpdatesTask::class.java) {
+          ${locals}
+          rejectVersionIf {
+            ${rule}
+          }
+        }
+      """.stripIndent()
+    ruledChild()
+  }
+
+  private void ruledChild() {
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.google.inject:guice:2.0'
+        }
+      """.stripIndent()
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's rejectVersionIf governs an included build's dependency"() {
+    given: "the child's own resolution accepts 3.1, but the outer's rule rejects it"
+    ruledComposite()
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the outer's rule reaches the merged-in row, stopping it at 3.0 rather than the child's own 3.1"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A rejectVersionIf inherited from an ancestor project governs a merged-in row"() {
+    given: "the rule is declared on the root, while the subproject is what aggregates the child"
+    testProjectDir.newFile('settings.gradle') <<
+      """
+        include 'app'
+        includeBuild 'child'
+      """.stripIndent()
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.1'
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('app')
+    testProjectDir.newFile('app/build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+      """.stripIndent()
+    ruledChild()
+
+    when:
+    def result = run(':app:dependencyUpdates')
+
+    then: "the subproject's report reads the same inherited chain its producers resolve under"
+    result.task(':app:dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's rejectVersionIf governs a merged-in row under the configuration cache"() {
+    given: "the same composite, run with the cache stored and then reused"
+    ruledComposite()
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: "the rules are read from the serialized task, so both legs cap the row at 3.0"
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !store.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+    hit.output.contains('Reusing configuration cache')
+    hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !hit.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A Kotlin rule calling a function its own build script declares still applies to the report"() {
+    given: 'the rule written as the README recipe is, so the lambda captures the script'
+    kotlinRuledComposite('candidate.version.isRejected()')
+
+    when:
+    def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the rules are applied, and the entry is discarded rather than the build failing to store it'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+    result.output.contains('Configuration cache entry discarded')
+    result.output.contains('rejectVersionIf')
+  }
+
+  @Unroll
+  def "A Kotlin rule reaching its build script through #holder still applies to the report"() {
+    given: 'the script bound into the lambda through a collection rather than through a field of it'
+    kotlinRuledComposite(rule, locals)
+
+    when:
+    def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the entry is discarded as it is for a rule reaching the script directly'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+    result.output.contains('reads a declaration from the build script')
+    result.output.contains('Configuration cache entry discarded')
+
+    where:
+    holder             | locals                                        | rule
+    'a list element'   | "val held = mutableListOf($REJECTOR)"         | 'held[0](candidate.version)'
+    'an array element' | "val held = arrayOf($REJECTOR)"               | 'held[0](candidate.version)'
+    'a map value'      | "val held = mutableMapOf(\"a\" to $REJECTOR)" | 'held.getValue("a")(candidate.version)'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A Kotlin rule that reaches no build script keeps the configuration cache"() {
+    given: 'the same composite, with the rule written so that it reads nothing the script declares'
+    kotlinRuledComposite('candidate.version == rejected')
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the entry is kept, so the report a Kotlin build caches today is not given up for the case above'
+    store.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !store.output.contains('Configuration cache entry discarded')
+    hit.output.contains('Reusing configuration cache')
+    hit.output.contains('com.google.inject:guice [2.0 -> 3.0]')
+    !hit.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's filterDeclaredConfigurations leaves out an included build's entry"() {
+    given: "the child declares guice into a 'tool' configuration only the child itself could filter"
+    ruledComposite(filteringOuter())
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: 'the merged-in row is left out by the name it shows'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    !result.output.contains('com.google.inject:guice')
+    // The survivor proves the drop is per-entry rather than an emptied report, and that a row
+    // with no configuration on it is kept by the report's filter as it is by the producer's.
+    result.output.contains('com.google.guava:guava')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's filterDeclaredConfigurations leaves out a merged-in entry under the cache"() {
+    given: 'the same composite, run with the cache stored and then reused'
+    ruledComposite(filteringOuter())
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the filter is read from the serialized task, so both legs leave the row out'
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    !store.output.contains('com.google.inject:guice')
+    store.output.contains('com.google.guava:guava')
+    hit.output.contains('Reusing configuration cache')
+    !hit.output.contains('com.google.inject:guice')
+    hit.output.contains('com.google.guava:guava')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A Kotlin filter calling a function its own build script declares still filters the report"() {
+    given: 'the filter written so that the lambda binds the script, as a rule written that way does'
+    kotlinFilteringComposite()
+
+    when:
+    def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the report is filtered, and the entry is discarded rather than the build failing to store it'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    !result.output.contains('com.google.inject:guice')
+    result.output.contains('com.google.guava:guava')
+    result.output.contains('Configuration cache entry discarded')
+    result.output.contains('filterDeclaredConfigurations')
+  }
+
+  /** The filtering composite with a Kotlin build script, its filter reading what the script declares. */
+  private void kotlinFilteringComposite() {
+    testProjectDir.newFile('settings.gradle.kts') << 'includeBuild("child")'
+    testProjectDir.newFile('build.gradle.kts') <<
+      """
+        import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
+        import org.gradle.api.specs.Spec
+
+        buildscript {
+          dependencies {
+            classpath(files(${classpathString.replace("'", '"')}))
+          }
+        }
+
+        apply(plugin = "io.github.ben-manes.versions")
+        apply(plugin = "java")
+
+        fun String.isReported(): Boolean = this != "tool"
+
+        repositories {
+          maven {
+            url = uri("${mavenRepoUrl}")
+          }
+        }
+
+        dependencies {
+          add("dependencyUpdatesAggregation", "com.example:child:1.0")
+          add("implementation", "com.google.guava:guava:15.0")
+        }
+
+        tasks.named("dependencyUpdates", DependencyUpdatesTask::class.java) {
+          filterDeclaredConfigurations = Spec<String> { it.isReported() }
+        }
+      """.stripIndent()
+    ruledChild()
+  }
+
+  /** An aggregating build that filters by a name declared only in the build it includes. */
+  private String filteringOuter() {
+    return """
+        apply plugin: 'java'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+          implementation 'com.google.guava:guava:15.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          filterDeclaredConfigurations { it != 'tool' }
+        }
+      """
+  }
+
+  @Unroll
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A composite reports the same rows with the cache as without it, #declared"() {
+    given: 'the rule and the aggregation coordinate declared in either order, one of them late'
+    ruledComposite(outerBody)
+
+    when:
+    def plain = run('dependencyUpdates')
+    def store = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+    def hit = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'a hook that runs after the project is evaluated still reaches the report'
+    [plain, store, hit].every { it.output.contains('com.google.inject:guice [2.0 -> 3.0]') }
+    [plain, store, hit].every { !it.output.contains('com.google.inject:guice [2.0 -> 3.1]') }
+
+    where:
+    declared << ['the rule from a later hook', 'the coordinate from a later hook']
+    outerBody << [
+      '''
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        afterEvaluate {
+          tasks.named('dependencyUpdates').configure {
+            rejectVersionIf {
+              candidate.version == '3.1'
+            }
+          }
+        }
+      ''',
+      '''
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.1'
+          }
+        }
+
+        afterEvaluate {
+          dependencies {
+            dependencyUpdatesAggregation 'com.example:child:1.0'
+          }
+        }
+      ''',
+    ]
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A resolutionStrategy cleared after it was captured does not govern the report"() {
+    given: 'a rule registered in the build script and cleared from a later hook'
+    ruledComposite(
+      '''
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.1'
+          }
+        }
+
+        afterEvaluate {
+          tasks.named('dependencyUpdates').configure {
+            resolutionStrategy()
+          }
+        }
+      ''')
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: 'clearing the strategy clears what the report would have applied along with it'
+    result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A warning is printed where the report cannot apply its own rules, rather than nothing quietly"() {
+    given: 'a strategy reading a script object as it registers, which a serialized closure may not do'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          resolutionStrategy {
+            def owner = project.path
+            it.componentSelection { rules ->
+              rules.all { selection ->
+                if (selection.candidate.version == '3.1') {
+                  selection.reject('rejected by the test rule')
+                }
+              }
+            }
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.google.inject:guice:2.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', '--configuration-cache', '--no-parallel')
+
+    then: 'the rows stay as their own builds resolved them, and the reason is printed'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains('Every dependency is left as the build that resolved it reported it')
+    result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An including build's report shows no candidate its own revision rejects"() {
+    given: 'a listing with its integration version below the release the child resolved'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '3.0'
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.example:snapshot-interleaved:1.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+    def offered = json.outdated.dependencies.find { it.name == 'snapshot-interleaved' }
+    def unchanged = json.current.dependencies.find { it.name == 'snapshot-interleaved' }
+
+    then: 'the row is reported, and never at the integration version a milestone report rejects'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    (offered != null) || (unchanged != null)
+    offered?.available?.milestone != '2.5-SNAPSHOT'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "An included build's own report is not governed by the including build"() {
+    given: "the outer's rejectVersionIf targets guice, but only when it aggregates the child"
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') << ''
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'java-library'
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          api 'com.google.inject:guice:2.0'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run(':child:dependencyUpdates')
+
+    then: "the child's own report is unaffected by a rule never registered in the outer"
+    result.task(':child:dependencyUpdates').outcome == SUCCESS
+    result.output.contains('com.google.inject:guice [2.0 -> 3.1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "The #475 snapshot exemption survives on a merged row"() {
+    given: 'a snapshot-only module in the child, exempted only when the report rebuilds its own current version'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version == '1.5'
+          }
+          rejectVersionIf {
+            candidate.version.endsWith('-SNAPSHOT') && candidate.version != currentVersion
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.example:snapshot-mixed:1.0-SNAPSHOT'
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+
+    then: "the outer's rule rejects the release ceiling, and its rebuilt current version exempts the snapshot below it"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    json.current.dependencies.find { it.name == 'snapshot-mixed' }?.version == '1.0-SNAPSHOT'
+    !json.outdated.dependencies*.name.contains('snapshot-mixed')
+    !json.unresolved.dependencies*.name.contains('snapshot-mixed')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A merged row's declared bound survives the rebuilt constraint"() {
+    given: 'a module the child bounds only through a platform, merged into a build that applies the bound'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            !satisfiesDeclaredBound
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'java-library'
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          implementation platform('org.apache.logging.log4j:log4j:2.16.0')
+          implementation 'org.apache.logging.log4j:log4j-core'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkConstraints = true
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+
+    then: 'the platform bound the child recorded still caps the merged row at the platform version'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    json.current.dependencies.find { it.name == 'log4j-core' }?.version == '2.16.0'
+    !json.outdated.dependencies*.name.contains('log4j-core')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
+  def "An aggregator's rule tightens a merged row where the child baked an unstable ceiling"() {
+    given: "the child bakes the pre-release ceiling with the built-in check off, and no rule of its own"
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version.contains('-')
+          }
+        }
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.probe:unstable-ceiling:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectPreReleases = false
+        }
+      """.stripIndent()
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates',
+      '-DoutputFormatter=plain,json', '-Drevision=release')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the child's own report bakes the pre-release ceiling, but the merged row is tightened by the outer's rule"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.task(':child:dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '3.0-Beta1'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '2.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's pre-release check rejects a merged row its child let through"() {
+    given: 'a child with the built-in check off, and an outer with no rule of its own'
+    unstableCeilingComposite()
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates', '-DoutputFormatter=plain,json')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the child keeps the pre-release it resolved, and the report it is merged into does not"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.task(':child:dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '3.0-Beta1'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '2.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's preReleaseVersionIf convention rejects a merged row"() {
+    given: "an outer with a convention neither build's markers cover, and a child with none"
+    unstableCeilingComposite(
+      "tool 'com.example:prerelease-flagged:1.0'",
+      '',
+      """
+        tasks.named('dependencyUpdates').configure {
+          preReleaseVersionIf { it.endsWith('-flagged') }
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates', '-DoutputFormatter=plain,json')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the convention reaches the row the child resolved without it, so the row is up to date"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.milestone == '3.0-flagged'
+    json.outdated.dependencies.every { it.name != 'prerelease-flagged' }
+    json.current.dependencies.find { it.name == 'prerelease-flagged' }?.version == '1.0'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's exemption keeps a merged pre-release row the check would reject"() {
+    given: 'an outer exempting the one module from its built-in checks'
+    unstableCeilingComposite(
+      "tool 'com.probe:unstable-ceiling:1.0'",
+      'rejectPreReleases = false',
+      """
+        tasks.named('dependencyUpdates').configure {
+          exemptFromBuiltInChecksIf { candidate.module == 'unstable-ceiling' }
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+
+    then: 'the exemption is read at the report, so the merged row keeps the ceiling the child baked'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '3.0-Beta1'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's own convention and exemption reach a merged row on the cache hit"() {
+    given: 'an outer that adds a convention and exempts one module, over a child with neither'
+    unstableCeilingComposite(
+      """
+        tool 'com.probe:unstable-ceiling:1.0'
+        tool 'com.example:prerelease-flagged:1.0'
+      """.stripIndent(),
+      'rejectPreReleases = false',
+      """
+        tasks.named('dependencyUpdates').configure {
+          preReleaseVersionIf { it.endsWith('-flagged') }
+          exemptFromBuiltInChecksIf { candidate.module == 'unstable-ceiling' }
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def store = run('dependencyUpdates', '--configuration-cache')
+    def hit = run('dependencyUpdates', '--configuration-cache')
+
+    then: 'both are read from the slots that survive the cache, so the hit reports what the store did'
+    store.task(':dependencyUpdates').outcome == SUCCESS
+    hit.output.contains('Configuration cache entry reused.')
+    [store, hit].every { it.output.contains('com.probe:unstable-ceiling [1.0 -> 3.0-Beta1]') }
+    [store, hit].every { !it.output.contains('com.example:prerelease-flagged [1.0 ->') }
+  }
+
+  /**
+   * Writes an outer that aggregates a child with its pre-release check off, so the child bakes a
+   * ceiling its own build accepts and the outer's report is the only place the check can apply.
+   */
+  private void unstableCeilingComposite(
+      String childDependency = "tool 'com.probe:unstable-ceiling:1.0'",
+      String childConfig = 'rejectPreReleases = false',
+      String outerConfig = '') {
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+        }
+        $outerConfig
+      """.stripIndent()
+    testProjectDir.newFolder('child')
+    testProjectDir.newFile('child/settings.gradle') << "rootProject.name = 'child'"
+    testProjectDir.newFile('child/build.gradle') <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          $childDependency
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+          $childConfig
+        }
+      """.stripIndent()
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1058')
+  def "A merged row never overrules the outer's own verdict for a coordinate it declares too"() {
+    given: 'both builds declare guava, and only the outer rejects the 16.0 line'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+          tool 'com.google.guava:guava:15.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          rejectVersionIf {
+            candidate.version.startsWith('16.')
+          }
+        }
+      """.stripIndent()
+    includedBuild(
+      'child',
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        configurations.maybeCreate('default')
+        afterEvaluate {
+          artifacts.add('default', file('child.jar'))
+        }
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.google.guava:guava:15.0'
+        }
+      """.stripIndent(),
+    )
+    testProjectDir.newFile('child/child.jar')
+
+    when:
+    def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
+    def json = report('')
+
+    then: "the child's unfiltered candidate is checked by the outer's rule, so the row stays up to date"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    json.outdated.dependencies.every { it.name != 'guava' }
+    json.current.dependencies.find { it.name == 'guava' }?.version == '15.0'
+    !result.output.contains('com.google.guava:guava [15.0 -> 16.0]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1004')
+  def 'Warns of an aggregated coordinate that no included build is substituted for'() {
+    given: 'the child is included only under pluginManagement, so it is not substituted'
+    testProjectDir.newFile('settings.gradle') <<
+      """
+        pluginManagement {
+          includeBuild 'child'
+        }
+      """.stripIndent()
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.example:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+        }
+      """.stripIndent()
+    includedBuild(
+      'child',
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.example:jvm-library:1.0'
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the coordinate is named, and the child's row is absent"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains(
+      'Left out of the dependency updates report: com.example:child:1.0, which resolved to an ' +
+        'external module rather than to a project.')
+    !result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
   }
 }

@@ -19,7 +19,7 @@ class VersionsSettingsPlugin : Plugin<Settings> {
     // The settings script's classpath contains the versions of the plugins that its own plugins
     // block declares, which appear in no project's buildscript.
     // https://github.com/ben-manes/gradle-versions-plugin/issues/367
-    publishSettingsClasspath(settings.gradle, settings.buildscript.configurations.toList())
+    publishSettingsClasspath(settings.gradle, settings.buildscript.configurations)
 
     // Isolated projects isolates the action of gradle.lifecycle.beforeProject so that the state it
     // captures cannot be shared between the projects it configures. This action captures nothing,
