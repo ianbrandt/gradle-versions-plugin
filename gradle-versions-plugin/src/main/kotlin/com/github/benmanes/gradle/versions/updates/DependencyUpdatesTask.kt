@@ -75,7 +75,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
           rejectPreReleases =
             settingOf(
               parameters.rejectPreReleasesFromCommandLine,
-              parameters.rejectPreReleases ?: (revision != INTEGRATION_REVISION),
+              parameters.rejectPreReleases ?: false,
             ),
         )
       },
@@ -499,14 +499,17 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     // resolved, which is the same condition that stores the convention and the exemption for the
     // report. Everywhere else the producers already applied the identical check, under the settings
     // they inherited, so applying it again would add nothing and would read the two predicates from
-    // properties that are gone from a restored cache entry.
+    // properties that are gone from a restored cache entry. It is applied whether or not
+    // `rejectPreReleases` is set, since that setting governs whether the step is printed: a merged
+    // row whose producer knew nothing of the convention configured here still has to be moved off
+    // the version this report counts as a pre-release.
     val mergesRowsResolvedElsewhere = parameters.mergesRowsResolvedElsewhere
     val reportRules =
       ReportRules(
         strategy,
         logger,
         revision,
-        mergesRowsResolvedElsewhere && rejectPreReleases,
+        mergesRowsResolvedElsewhere,
         parameters.preReleaseVersionIf ?: parameters.storedPreReleaseVersionIf,
         parameters.exemptFromBuiltInChecksIf ?: parameters.storedExemptFromBuiltInChecksIf,
       )
@@ -533,6 +536,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     reporterFor(
       statuses, projectPath, logger, revision, outputFormatter(), outputDirectory(), reportfileName,
       checkForGradleUpdate, gradleVersionsApiBaseUrl, gradleReleaseChannel, skipped,
+      rejectPreReleases,
     ).write()
   }
 

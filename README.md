@@ -308,14 +308,14 @@ tasks.named("dependencyUpdates").configure {
 - `checkConstraints` adds the versions a `constraints` block manages to the
   report (see [Constraints](#constraints)).
 
-Nothing else is needed. A pre-release candidate is left out by
-`rejectPreReleases`, and a candidate outside a `strictly` or `reject` bound
-written in the build, outside a dynamic version declared on the buildscript
-classpath, or outside the version fixed by a consumed platform is left out by
-`rejectOutOfBounds`. Both are on by default (see [Filtering unstable
+Nothing else is needed. A pre-release candidate is printed as a step of its own
+after the newest release rather than in place of it, and `rejectPreReleases`
+leaves that step out. A candidate outside a `strictly` or `reject` bound written
+in the build, outside a dynamic version declared on the buildscript classpath, or
+outside the version fixed by a consumed platform is left out by
+`rejectOutOfBounds`, which is on by default (see [Filtering unstable
 versions](#filtering-unstable-versions) and [Respecting declared
-bounds](#respecting-declared-bounds)); set either to `false` to see what it
-leaves out.
+bounds](#respecting-declared-bounds)).
 
 The [configuration filters](#configuration-filter) are absent only because
 their arguments are build-specific: the names to reject come from your own
@@ -337,7 +337,7 @@ command line option, since no command line can express the logic.
 | [`filterConfigurations`](#filterconfigurations) | a `Spec<Configuration>` | every configuration | |
 | [`filterDeclaredConfigurations`](#filterdeclaredconfigurations) | a `Spec<String>` | every name | |
 | [`rejectOutOfBounds`](#respecting-declared-bounds) | `true`, `false` | `true` | `--[no-]reject-out-of-bounds` |
-| [`rejectPreReleases`](#filtering-unstable-versions) | `true`, `false` | `true` | `--[no-]reject-pre-releases` |
+| [`rejectPreReleases`](#filtering-unstable-versions) | `true`, `false` | `false` | `--[no-]reject-pre-releases` |
 | [`preReleaseVersionIf`](#filtering-unstable-versions) | a predicate over a version string | nothing added | |
 | [`exemptFromBuiltInChecksIf`](#filtering-unstable-versions) | a predicate over the candidate | nothing exempt | |
 | [`rejectVersionIf`](#filtering-unstable-versions) | a predicate over the candidate | nothing rejected | |
@@ -707,14 +707,32 @@ hoc usage:
 
 Because Maven repositories do not mark pre-release versions, an alpha or release
 candidate reaches the query as the latest version under any revision. What keeps
-it out of the report under `release` and `milestone` is the version string
-rather than the revision (see [Filtering unstable
+it from displacing the newest release under `release` and `milestone` is the
+version string rather than the revision (see [Filtering unstable
 versions](#filtering-unstable-versions)).
 
 ##### Filtering unstable versions
 
-A pre-release candidate is left out of the report unless the current version
-is itself a pre-release, in which case newer pre-releases are still reported.
+A row shows the newest release the resolution accepted, then the newest
+pre-release above it as a second step, each printed only where it is newer than
+the step before it:
+
+```
+The following dependencies have later milestone versions:
+ - org.jetbrains.kotlin:kotlin-stdlib [2.4.0 -> 2.4.10 -> 2.4.20-beta1]
+ - com.google.guava:guava [15.0 -> 16.0-rc1]
+```
+
+The Gradle row is printed the same way, and `gradleReleaseChannel` defaults to
+`release-candidate` for the same reason. Setting `rejectPreReleases` to `true`
+leaves the pre-release step out, so the first row above reads `[2.4.0 ->
+2.4.10]` and the second is reported as up to date.
+
+The pre-release step is the newest candidate that fails the pre-release check
+alone: the bound check, the revision and any `rejectVersionIf` filter are
+applied to it first, so a candidate one of those rejects is not printed as a
+step. It is left out entirely when the current version is itself a pre-release,
+in which case newer pre-releases are the row's accepted version instead.
 The markers are `alpha`, `beta`, `canary`, `candidate`, `cr`, `dev`,
 `draft`, `ea`, `eap`, `experimental`, `m`, `milestone`, `nightly`, `pr`, `pre`,
 `preview`, `rc`, `snap`, `snapshot` and `unstable`, each matched
@@ -736,11 +754,6 @@ The check is for a pre-release marker rather than for a stable pattern, so a
 version with a qualifier not in the list, such as `10.2.0.jre11`, `1.1.17.SP2`
 or `0.4-groovy-1.6`, is passed through rather than hidden.
 
-Under the `integration` revision the filter is off by default, and
-`rejectPreReleases` reads `false`: that revision selects the newest version
-whatever its qualifier, snapshots included. Setting the property, or passing the
-option, turns it on there too.
-
 A candidate is left out by being rejected, so for a module with only
 pre-releases published, and the declared version no longer among them, no
 candidate is left to resolve. That entry is reported as unresolved, with the
@@ -752,8 +765,9 @@ builds, is added to the check with `preReleaseVersionIf`. A version it matches
 is a pre-release wherever the check reads one: it is left out under the same
 property and option, a build already on one is still shown a newer one, and
 `isPreRelease` in a rule is true for it. The convention is part of the built-in
-check, so it is off wherever that check is, under `rejectPreReleases = false`
-and by default under the `integration` revision. It is given the version with
+check, so a version it matches is printed as a step rather than as the row's
+accepted version, and `rejectPreReleases` leaves that step out as it does any
+other. It is given the version with
 any build metadata removed, as the markers are, and it is applied to the version
 in use as well as to the candidate. Called more than once on a task, the
 predicates accumulate; a subproject that calls it replaces the root's rather
@@ -788,18 +802,16 @@ than in place of it, and it is still applied when the option is passed, so a
 convention belongs in `preReleaseVersionIf` rather than in a filter, and an
 exception belongs in `exemptFromBuiltInChecksIf`, below. A filter is for a
 policy the checks cannot express, such as pinning a module. A candidate is left
-out if either rejects it, and neither can restore what the other rejected. To
-see every published candidate, including the pre-releases, turn the built-in
-filter off with `rejectPreReleases = false`, or with `--no-reject-pre-releases`
-for a single run (see [Command line options](#command-line-options)).
+out if either rejects it, and neither can restore what the other rejected. A
+candidate a filter rejects is not printed as a pre-release step either.
 
 A module can be exempted from both built-in checks, with the checks left on for
 the rest of the build. `exemptFromBuiltInChecksIf` takes the same predicate over
 the candidate as `rejectVersionIf`; a candidate it matches is not held to
 `rejectPreReleases` or to `rejectOutOfBounds`. The exemption is applied
 inside the checks, so the two properties and their options apply as they do
-without it: `--no-reject-pre-releases` still turns the check off for a single
-run, and the positive option turns it on with the exemption in place. Called
+without it: `--reject-pre-releases` still leaves the step out for a single run,
+and the negative option prints it with the exemption in place. Called
 more than once on a task, the predicates accumulate; a subproject that calls it
 replaces the root's rather than adding to it (see [Shared task
 settings](#shared-task-settings)). Here one module is allowed both its
@@ -2120,13 +2132,14 @@ longer included does not break the build.
 The task that writes the report applies its settings to every entry in it,
 including the entries an included build resolved and the entries its subprojects
 resolved. Its `rejectVersionIf` and `resolutionStrategy` rules are applied to
-those entries, `rejectPreReleases` checks them against the pre-release
-markers, the convention added with `preReleaseVersionIf` and the exception made
-with `exemptFromBuiltInChecksIf`, and `filterDeclaredConfigurations` leaves out
-the ones with a configuration name it rejects. An included build with nothing
-configured is reported under the aggregating build's rules, and an included
-build with `rejectPreReleases` switched off is still checked against it
-where its entries are merged.
+those entries, the convention added with `preReleaseVersionIf` and the exception
+made with `exemptFromBuiltInChecksIf` are read for them, and
+`filterDeclaredConfigurations` leaves out the ones with a configuration name it
+rejects. An included build with nothing configured is reported under the
+aggregating build's rules. `rejectPreReleases` is settled by the aggregating
+task alone, for every entry in the report: an included build's own setting
+governs the report that build writes rather than the one its entries are merged
+into.
 
 Within one build the pre-release check and a rule behave differently. The
 pre-release check reads the convention and the exemption inherited by the
@@ -2452,8 +2465,8 @@ and *Note*s are things worth knowing that need no action.
 
 ### v0.61.0
 
-In the next release, a pre-release candidate is left out of the report unless
-the current version is itself a pre-release, the report is held to the bounds
+In the next release, a pre-release candidate is reported as a step after the
+newest release rather than in place of it, the report is held to the bounds
 written in the build without a rule written for it, a coordinate with one
 declared version and different latest versions across the aggregated projects
 is shown on one entry per latest version, where the entries were merged into
@@ -2461,11 +2474,20 @@ the newest of them before, and an aggregating report applies its settings to
 the entries merged from an included build:
 
 > [!IMPORTANT]
-> - A dependency with no newer release, only a newer pre-release, is now
->   reported as up to date, where that pre-release was reported before. Set
->   `rejectPreReleases = false` to include pre-releases again, or pass
->   `--no-reject-pre-releases` for a single run (see [Filtering unstable
+> - A row's `available` version is now the newest release, and a newer
+>   pre-release is carried beside it in `available.preRelease`, where the
+>   pre-release was the `available` version before. A plain text row prints both,
+>   as `[2.4.0 -> 2.4.10 -> 2.4.20-beta1]`. A tool that reads `available.release`,
+>   `available.milestone` or `available.integration` gets the newest release
+>   rather than the pre-release, and for a dependency whose only newer candidate
+>   is a pre-release it gets the version in use. Set `rejectPreReleases = true`
+>   to leave the pre-release step out altogether, or pass
+>   `--reject-pre-releases` for a single run (see [Filtering unstable
 >   versions](#filtering-unstable-versions)).
+> - `VersionAvailable` takes a fourth `preRelease` argument. Every constructor
+>   arity the last release shipped is still callable, so Java and Groovy callers
+>   are unaffected, but Kotlin code that constructs one with named or default
+>   arguments has to be recompiled.
 > - A candidate outside a `strictly` or `reject` bound written in the build,
 >   outside a dynamic version declared on the buildscript classpath, or outside
 >   the version fixed by a consumed platform, is left out of the report, where
