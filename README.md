@@ -2516,6 +2516,24 @@ the entries merged from an included build:
 >   are unaffected, but Kotlin code that constructs one with named or default
 >   arguments has to be recompiled.
 
+> [!TIP]
+> - The `isNonStable` recipe formerly recommended here can be dropped, along with
+>   the `rejectVersionIf` clause that called it. The built-in check matches
+>   pre-release markers rather than a stable pattern, so a qualifier not in its
+>   list, such as `13.4.0.jre11`, stays in the report. A convention not in the
+>   marker list, such as graphql-java's `-nf-` builds, is added to the check
+>   with `preReleaseVersionIf`, so the property and its option govern it too,
+>   and it is off wherever the property is.
+> - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
+>   bound is now applied by `rejectOutOfBounds`. A build that needs an exception
+>   for a module it bounds exempts it with `exemptFromBuiltInChecksIf` (see
+>   [Filtering unstable versions](#filtering-unstable-versions)). The member is
+>   deprecated and will be removed in a later release; a warning is printed once
+>   per project when a rule reads it, and a Kotlin DSL build that treats
+>   compiler warnings as errors has to drop the clause before upgrading. With
+>   the clause still in a rule, the same candidates are rejected under
+>   `--no-reject-out-of-bounds` as without it.
+
 > [!NOTE]
 > - A `rejectVersionIf` filter is now applied to a pre-release candidate before
 >   the built-in check leaves it out, where the built-in check ran first and the
@@ -2555,26 +2573,6 @@ the entries merged from an included build:
 >   included build's entries, where a Kotlin rule calls a function declared in
 >   the same build script. Move the function into a compiled class, in `buildSrc`
 >   or an included build, to keep the entry. A Groovy build is unaffected.
-
-> [!TIP]
-> - The `isNonStable` recipe formerly recommended here can be dropped, along with
->   the `rejectVersionIf` clause that called it. The built-in check matches
->   pre-release markers rather than a stable pattern, so a qualifier not in its
->   list, such as `13.4.0.jre11`, stays in the report. A convention not in the
->   marker list, such as graphql-java's `-nf-` builds, is added to the check
->   with `preReleaseVersionIf`, so the property and its option govern it too,
->   and it is off wherever the property is.
-> - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
->   bound is now applied by `rejectOutOfBounds`. A build that needs an exception
->   for a module it bounds exempts it with `exemptFromBuiltInChecksIf` (see
->   [Filtering unstable versions](#filtering-unstable-versions)). The member is
->   deprecated and will be removed in a later release; a warning is printed once
->   per project when a rule reads it, and a Kotlin DSL build that treats
->   compiler warnings as errors has to drop the clause before upgrading. With
->   the clause still in a rule, the same candidates are rejected under
->   `--no-reject-out-of-bounds` as without it.
-
-> [!NOTE]
 > - Newer pre-releases are still reported when the current version is itself a
 >   pre-release.
 > - A module with only pre-releases published, and the declared version no
