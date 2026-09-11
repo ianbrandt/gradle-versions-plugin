@@ -2497,8 +2497,9 @@ newest release rather than in place of it, the report is held to the bounds
 written in the build without a rule written for it, a coordinate with one
 declared version and different latest versions across the aggregated projects
 is shown on one entry per latest version, where the entries were merged into
-the newest of them before, and an aggregating report applies its settings to
-the entries merged from an included build:
+the newest of them before, an aggregating report applies its settings to the
+entries merged from an included build, and the platform behind a constrained
+module's version is shown on that module's own entry:
 
 > [!IMPORTANT]
 > - A row's `available` version is now the newest release, and a newer
@@ -2512,6 +2513,14 @@ the entries merged from an included build:
 >   Set `rejectPreReleases = true` to leave the pre-release step out altogether,
 >   or pass `--reject-pre-releases` for a single run (see [Filtering unstable
 >   versions](#filtering-unstable-versions)).
+> - An attribution line reading `constrained by the platform :platform` can now
+>   be printed under an entry, showing the platform project or BOM behind the
+>   version. It does not depend on `checkConstraints`, and it is printed under
+>   an up to date entry as well as an outdated one, so a tool that parses the
+>   plain text report line by line has to skip it, as it already does for the
+>   other attribution lines (see [Report format](#report-format)). The same
+>   names appear in the JSON and XML reports, in `constrainedBy` (see
+>   [Constraints](#constraints)).
 
 > [!TIP]
 > - The `isNonStable` recipe formerly recommended here can be dropped, along with
