@@ -6,6 +6,7 @@ import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentS
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.RecordedComponentSelection
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ResolutionStrategyWithCurrent
 import org.gradle.api.Action
+import org.gradle.api.artifacts.ComponentSelection
 import org.gradle.api.artifacts.VersionConstraint
 import org.gradle.api.internal.artifacts.dependencies.DefaultImmutableVersionConstraint
 import org.gradle.api.logging.Logger
@@ -33,7 +34,7 @@ internal class ReportRules(
   resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
   private val logger: Logger,
   private val revision: String,
-  private val rejectPreReleases: Boolean,
+  private val checksPreReleases: Boolean,
   preReleaseVersionIf: Spec<String>?,
   exemptFromBuiltInChecksIf: ComponentFilter?,
 ) {
@@ -100,7 +101,7 @@ internal class ReportRules(
     statuses: List<PartialStatus>,
     candidatesByProjectPath: Map<String, List<String>>,
   ): List<PartialStatus> {
-    if (!hasRules && !rejectPreReleases) {
+    if (!hasRules && !checksPreReleases) {
       return statuses
     }
     val versionsByProjectPath = candidatesByProjectPath.mapValues { (_, candidates) -> versionsByModule(candidates) }
@@ -156,6 +157,11 @@ internal class ReportRules(
     // synthesized UnresolvedInfo is always the ceiling, so the reason reported has to be why that
     // version was rejected rather than why some older candidate further down the walk was.
     var ceilingReason: String? = null
+    // The newest candidate this report's pre-release check left out, which the producer's own check
+    // passed because the convention or the exemption configured here reaches further. Reported as
+    // the row's pre-release step, the same place a locally resolved row carries it, and only when
+    // the producer recorded none of its own.
+    var preRelease: String? = status.preReleaseVersion?.takeIf { keptAsStep(status, it, ceilingIndex, ceilingIndex, rules) }
     for (index in ceilingIndex until moduleVersions.size) {
       val version = moduleVersions[index]
       val shim = RecordedComponentSelection(status.group, status.name, version)
@@ -166,6 +172,9 @@ internal class ReportRules(
       if (rejectsPreRelease(current, shim)) {
         if (index == ceilingIndex) {
           ceilingReason = PRE_RELEASE_REASON
+        }
+        if (preRelease == null && keptAsStep(status, version, index, ceilingIndex, rules)) {
+          preRelease = version
         }
         continue
       }
@@ -193,7 +202,11 @@ internal class ReportRules(
         return status
       }
       if (!shim.rejected) {
-        return if (version == status.latestVersion) status else status.copy(latestVersion = version)
+        return if (version == status.latestVersion && preRelease == status.preReleaseVersion) {
+          status
+        } else {
+          status.copy(latestVersion = version, preReleaseVersion = preRelease)
+        }
       }
       if (index == ceilingIndex) {
         ceilingReason = shim.reason
@@ -222,6 +235,36 @@ internal class ReportRules(
     )
 
   /**
+   * Returns whether [version] is printed as this row's pre-release step, which it is when this
+   * report's revision and its own rules both accept it. The rules are applied here rather than in
+   * the walk above, which reaches a pre-release candidate only to skip it, and applied to a shim of
+   * their own so that the walk's verdict for the same candidate is not overwritten. A rule reading
+   * the metadata absent from the record leaves the step alone, as an undecided candidate is left
+   * alone everywhere else. The version the producer recorded sits above the verdict, where the walk
+   * never reaches, so it is checked here too.
+   */
+  private fun keptAsStep(
+    status: PartialStatus,
+    version: String,
+    index: Int,
+    ceilingIndex: Int,
+    rules: List<Action<in ComponentSelection>>,
+  ): Boolean {
+    if (index > ceilingIndex && !accepted(status, version)) {
+      return false
+    }
+    if (rules.isEmpty()) {
+      return true
+    }
+    val shim = RecordedComponentSelection(status.group, status.name, version)
+    for (rule in rules) {
+      if (shim.rejected || shim.undecided) break
+      shim.applyRule(rule)
+    }
+    return !shim.rejected || shim.undecided
+  }
+
+  /**
    * Returns whether the report's `rejectPreReleases` leaves this candidate out, read
    * through the same wrapper a rule reads it through so that `isPreRelease` and an
    * `exemptFromBuiltInChecksIf` predicate answer here as they do at a producer.
@@ -230,7 +273,7 @@ internal class ReportRules(
     current: Coordinate,
     shim: RecordedComponentSelection,
   ): Boolean {
-    if (!rejectPreReleases) {
+    if (!checksPreReleases) {
       return false
     }
     val selection =
