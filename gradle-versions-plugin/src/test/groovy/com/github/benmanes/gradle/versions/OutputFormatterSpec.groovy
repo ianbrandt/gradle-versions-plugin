@@ -303,7 +303,8 @@ final class OutputFormatterSpec extends Specification {
                     "available": {
                         "release": null,
                         "milestone": "3.1",
-                        "integration": null
+                        "integration": null,
+                        "preRelease": null
                     },
                     "userReason": null,
                     "version": "2.0",

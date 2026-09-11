@@ -265,7 +265,21 @@ class HtmlReporter(
     return rows
   }
 
+  /**
+   * Returns the version the Latest Version cell shows, which is the newest the resolution accepted,
+   * followed by the pre-release step where there is one and it is not the same version.
+   */
   private fun getDisplayableVersion(versionAvailable: VersionAvailable): String? {
+    val latest = latestOf(versionAvailable)
+    val preRelease = versionAvailable.preRelease
+    return when {
+      preRelease == null || preRelease == latest -> latest
+      latest.isNullOrEmpty() -> preRelease
+      else -> "$latest -> $preRelease"
+    }
+  }
+
+  private fun latestOf(versionAvailable: VersionAvailable): String? {
     if (revision.equals("milestone", ignoreCase = true)) {
       return versionAvailable.milestone
     } else if (revision.equals("release", ignoreCase = true)) {

@@ -78,6 +78,8 @@ class DependencyUpdatesReporter(
   val skipped: List<SkippedConfiguration> = emptyList(),
   val platformProjectsByCoordinate: Map<Coordinate, List<String>> = emptyMap(),
   val constrainedByCoordinate: Map<Coordinate, List<String>> = emptyMap(),
+  /** The pre-release step of each row, absent where the pre-release check left nothing out. */
+  val preReleaseByCurrent: Map<Coordinate, String> = emptyMap(),
 ) {
   @Deprecated("Use the constructor that includes the skipped configurations.")
   constructor(
@@ -333,11 +335,12 @@ class DependencyUpdatesReporter(
     key: Map<String, String>,
   ): DependencyOutdated {
     val laterVersion = latestFor(coordinate, key)
+    val preRelease = preReleaseByCurrent[coordinate]
     val available =
       when (revision) {
-        "milestone" -> VersionAvailable(milestone = laterVersion)
-        "integration" -> VersionAvailable(integration = laterVersion)
-        else -> VersionAvailable(release = laterVersion)
+        "milestone" -> VersionAvailable(milestone = laterVersion, preRelease = preRelease)
+        "integration" -> VersionAvailable(integration = laterVersion, preRelease = preRelease)
+        else -> VersionAvailable(release = laterVersion, preRelease = preRelease)
       }
     return DependencyOutdated(
       group = key["group"],
@@ -427,8 +430,17 @@ fun reporterFor(
   gradleVersionsApiBaseUrl: String,
   gradleReleaseChannel: String,
   skipped: List<SkippedConfiguration> = emptyList(),
+  rejectPreReleases: Boolean = false,
 ): DependencyUpdatesReporter {
-  val split = markDivergentlyResolved(statuses)
+  // Dropped here rather than checked at every read: the setting governs whether the step is
+  // printed, so a report that leaves it out is one whose rows never carried it.
+  val kept =
+    if (rejectPreReleases) {
+      statuses.map { if (it.preReleaseVersion == null) it else it.copy(preReleaseVersion = null) }
+    } else {
+      statuses
+    }
+  val split = markDivergentlyResolved(kept)
   val versions = VersionMapping(logger, split)
   val projectsByCoordinate = divergentProjects(split)
   val contributedCoordinates = contributedCoordinates(split, logger)
@@ -461,6 +473,7 @@ fun reporterFor(
     upgradeVersions, versions.undeclared, unresolved, projectUrls, gradleUpdateChecker,
     gradleReleaseChannel, versions.latestByCurrent, projectsByCoordinate, contributedCoordinates,
     configurationsByCoordinate, skipped, platformProjectsByCoordinate, constrainedByCoordinate,
+    versions.preReleaseByCurrent,
   )
 }
 

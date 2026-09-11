@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>com.example</groupId>
+  <artifactId>stepped-widget</artifactId>
+  <versioning>
+    <latest>1.2-beta</latest>
+    <release>1.1</release>
+    <versions>
+      <version>1.0</version>
+      <version>1.1</version>
+      <version>1.2-beta</version>
+    </versions>
+    <lastUpdated>20260910000000</lastUpdated>
+  </versioning>
+</metadata>
