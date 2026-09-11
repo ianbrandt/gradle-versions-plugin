@@ -369,10 +369,14 @@ dependencyUpdates`.
 Where more than one is set, the command line option is the one that applies,
 ahead of a system property and of what is configured in the build.
 
-An option applies within the build it is invoked in. Where a report merges an
-[included build](#composite-builds), that build's rows are resolved with its own
-configuration, since the option is not passed to the included build. A system
-property is, being set for the whole JVM.
+An option applies within the build it is invoked in, where a system property,
+being set for the whole JVM, reaches an included build as well. So where a
+report merges an [included build](#composite-builds), an option that governs
+what is resolved, `--revision`, `--[no-]check-constraints`,
+`--[no-]check-build-environment-constraints` and `--[no-]reject-out-of-bounds`,
+changes only the rows resolved by the build it was passed to. The rest apply to
+the whole report, the merged rows included (see [Shared task
+settings](#shared-task-settings)).
 
 #### What the report checks
 
