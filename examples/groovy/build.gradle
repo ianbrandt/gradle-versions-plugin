@@ -40,8 +40,6 @@ def isNonStable = { String version ->
 tasks.named("dependencyUpdates").configure {
   checkForGradleUpdate = true
   rejectOutOfBounds = true
-  // On by default. Turned off here so that the rejectVersionIf examples below are the whole
-  // pre-release policy.
   rejectPreReleases = false
 
   // Example 1: reject all non stable versions
