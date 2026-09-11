@@ -3056,8 +3056,74 @@ final class CompositeBuildSpec extends Specification {
     then: "the coordinate is named, and the child's row is absent"
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.output.contains(
-      'Left out of the dependency updates report: com.example:child:1.0, which resolved to an ' +
-        'external module rather than to a project.')
+      'Left out of the dependency updates report: com.example:child:1.0, which no included ' +
+        'build was substituted for.')
+    !result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
+  }
+
+  def 'Warns of an aggregated coordinate that resolves to nothing'() {
+    given: 'the coordinate misnames the group of the build that is included'
+    testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
+    testProjectDir.newFile('build.gradle') <<
+      """
+        plugins {
+          id 'io.github.ben-manes.versions'
+        }
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          dependencyUpdatesAggregation 'com.exampl:child:1.0'
+        }
+
+        tasks.named('dependencyUpdates').configure {
+          checkForGradleUpdate = false
+        }
+      """.stripIndent()
+    includedBuild(
+      'child',
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'io.github.ben-manes.versions'
+
+        group = 'com.example'
+        version = '1.0'
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        configurations.create('tool') {
+          canBeResolved = true
+          canBeConsumed = false
+        }
+
+        dependencies {
+          tool 'com.example:jvm-library:1.0'
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates')
+
+    then: "the coordinate is named, and the child's row is absent"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.output.contains(
+      'Left out of the dependency updates report: com.exampl:child:1.0, which no included build ' +
+        'was substituted for. Check the coordinates against the group, name and version set in ' +
+        'the included build.')
     !result.output.contains('com.example:jvm-library [1.0 -> 2.0]')
   }
 }

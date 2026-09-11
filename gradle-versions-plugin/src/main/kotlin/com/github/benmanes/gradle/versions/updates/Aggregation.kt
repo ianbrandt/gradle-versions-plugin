@@ -620,9 +620,11 @@ internal fun registerAggregation(
     )
     // The artifact view above is lenient and keeps only the project components, so a coordinate
     // that Gradle substitutes onto no project is dropped without a word and the report is printed
-    // short. Read from the resolution result, which the lenient view does not filter, and mapped
-    // through a provider so that the graph is walked at execution and the configuration cache
-    // stores the provider rather than the result.
+    // short. A misspelled coordinate and one that resolves to a module in a repository are both
+    // collected here, as neither was substituted and the two differ in the resolution result only
+    // by which repositories are declared in the build. Read from the resolution result, which the
+    // lenient view does not filter, and mapped through a provider so that the graph is walked at
+    // execution and the configuration cache stores the provider rather than the result.
     task.unaggregatedCoordinates.set(
       results.incoming.resolutionResult.rootComponent.map { root ->
         root.dependencies
