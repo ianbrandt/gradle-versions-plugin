@@ -2504,12 +2504,13 @@ the entries merged from an included build:
 > - A row's `available` version is now the newest release, and a newer
 >   pre-release is carried beside it in `available.preRelease`, where the
 >   pre-release was the `available` version before. A plain text row prints both,
->   as `[2.4.0 -> 2.4.10 -> 2.4.20-beta1]`. A tool that reads `available.release`,
->   `available.milestone` or `available.integration` gets the newest release
->   rather than the pre-release, and for a dependency whose only newer candidate
->   is a pre-release it gets the version in use. Set `rejectPreReleases = true`
->   to leave the pre-release step out altogether, or pass
->   `--reject-pre-releases` for a single run (see [Filtering unstable
+>   as `[2.4.0 -> 2.4.10 -> 2.4.20-beta1]`. Reading `available.release`,
+>   `available.milestone` or `available.integration` yields the newest release
+>   rather than the pre-release, and yields null where the only newer candidate
+>   is a pre-release, since no newer release was found. A tool that prints one
+>   version for the row falls back to `available.preRelease` after those three.
+>   Set `rejectPreReleases = true` to leave the pre-release step out altogether,
+>   or pass `--reject-pre-releases` for a single run (see [Filtering unstable
 >   versions](#filtering-unstable-versions)).
 > - `VersionAvailable` takes a fourth `preRelease` argument. Every constructor
 >   arity the last release shipped is still callable, so Java and Groovy callers
