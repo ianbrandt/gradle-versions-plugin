@@ -1873,7 +1873,10 @@ passed as the closure argument.
 > cover the underlying rules.
 
 For example, if you wanted to create an html table for the upgradable
-dependencies, you could use:
+dependencies, you could use the following. Where an entry's only newer candidate
+is a pre-release, no version is filled in at the revision level, so the last
+fallback is `preRelease` (see [Filtering unstable
+versions](#filtering-unstable-versions)):
 
 <details open>
 <summary>Kotlin</summary>
@@ -1892,10 +1895,12 @@ tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
         appendLine("  </thead>")
         appendLine("  <tbody>")
         updatable.forEach { dependency ->
+          val available = dependency.available
+          val latest = available.release ?: available.milestone ?: available.preRelease
           appendLine(
             "    <tr><td>${dependency.group}</td><td>${dependency.name}</td>" +
               "<td>${dependency.version}</td>" +
-              "<td>${dependency.available.release ?: dependency.available.milestone}</td></tr>"
+              "<td>$latest</td></tr>"
           )
         }
         appendLine("  </tbody>")
@@ -1924,9 +1929,11 @@ tasks.named("dependencyUpdates").configure {
       table.append("  </thead>\n")
       table.append("  <tbody>\n")
       updatable.each { dependency ->
+        def available = dependency.available
+        def latest = available.release ?: available.milestone ?: available.preRelease
         table.append("    <tr><td>${dependency.group}</td><td>${dependency.name}</td>")
         table.append("<td>${dependency.version}</td>")
-        table.append("<td>${dependency.available.release ?: dependency.available.milestone}</td></tr>\n")
+        table.append("<td>${latest}</td></tr>\n")
       }
       table.append("  </tbody>\n")
       table.append("</table>")
