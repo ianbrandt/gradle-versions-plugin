@@ -181,7 +181,7 @@ final class ResolverCandidatesSpec extends Specification {
     }
     other.buildscript.dependencies.add('classpath', 'com.example:someplugin:1.0')
     def configuration = other.buildscript.configurations.getByName('classpath')
-    def resolver = new Resolver(app, null, false, true, true, null, null,
+    def resolver = new Resolver(app, null, false, true, null, null,
       other.buildscript.configurations, {})
 
     when:

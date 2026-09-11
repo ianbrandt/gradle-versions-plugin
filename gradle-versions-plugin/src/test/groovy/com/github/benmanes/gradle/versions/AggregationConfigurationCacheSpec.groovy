@@ -237,7 +237,8 @@ final class AggregationConfigurationCacheSpec extends Specification {
       ['The following dependencies have later release versions:',
        'com.google.inject:guice [2.0 -> 3.1]'],
       ['com.google.inject:guice [2.0 -> 3.1]'],
-      ['com.google.inject:guice [2.0 -> 3.0]'],
+      // The convention marks 3.1 a pre-release, so it is the step after the release it holds back.
+      ['com.google.inject:guice [2.0 -> 3.0 -> 3.1]'],
       ['com.google.inject:guice [2.0 -> 3.1]'],
     ]
     absent << [
@@ -247,7 +248,7 @@ final class AggregationConfigurationCacheSpec extends Specification {
       [],
       ['The following dependencies have later milestone versions:'],
       ['org.apache.logging.log4j:log4j-core'],
-      ['com.google.inject:guice [2.0 -> 3.1]'],
+      ['com.google.inject:guice [2.0 -> 3.1]\n'],
       ['com.google.inject:guice [2.0 -> 3.0]'],
     ]
   }

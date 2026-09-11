@@ -1,6 +1,7 @@
 package com.github.benmanes.gradle.versions.reporter
 
 import com.github.benmanes.gradle.versions.reporter.result.Dependency
+import com.github.benmanes.gradle.versions.reporter.result.DependencyOutdated
 import com.github.benmanes.gradle.versions.reporter.result.Result
 import com.github.benmanes.gradle.versions.reporter.result.VersionAvailable
 import com.github.benmanes.gradle.versions.updates.gradle.GradleReleaseChannel.CURRENT
@@ -253,16 +254,33 @@ class HtmlReporter(
           getUrlString(dependency.projectUrl),
           getVersionString(dependency.group.orEmpty(), dependency.name.orEmpty(), dependency.version) +
             origin(dependency),
-          getVersionString(
-            dependency.group.orEmpty(),
-            dependency.name.orEmpty(),
-            getDisplayableVersion(dependency.available),
-          ),
+          latestVersionCell(dependency),
           dependency.userReason.orEmpty(),
         )
       rows.add(rowString)
     }
     return rows
+  }
+
+  /**
+   * Returns the Latest Version cell, the newest version the resolution accepted followed by the
+   * pre-release step where a row has one. Each version is linked on its own rather than the pair
+   * being formatted as one, since [getVersionString] puts what it is given into a Sonatype url.
+   */
+  private fun latestVersionCell(dependency: DependencyOutdated): String {
+    val available = dependency.available
+    val group = dependency.group.orEmpty()
+    val name = dependency.name.orEmpty()
+    val latest = getDisplayableVersion(available)
+    val cell = getVersionString(group, name, latest)
+    val preRelease = available.preRelease
+    return if (preRelease == null || preRelease == latest) {
+      cell
+    } else if (latest.isNullOrEmpty()) {
+      getVersionString(group, name, preRelease)
+    } else {
+      cell + " -> " + getVersionString(group, name, preRelease)
+    }
   }
 
   private fun getDisplayableVersion(versionAvailable: VersionAvailable): String? {
@@ -273,7 +291,8 @@ class HtmlReporter(
     } else if (revision.equals("integration", ignoreCase = true)) {
       return versionAvailable.integration
     }
-    return ""
+    // Where the report filed the version it found for a revision outside the three levels.
+    return versionAvailable.release
   }
 
   override fun getFileExtension(): String {

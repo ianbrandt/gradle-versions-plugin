@@ -1,7 +1,9 @@
 package com.github.benmanes.gradle.versions.reporter
 
 import com.github.benmanes.gradle.versions.reporter.result.Dependency
+import com.github.benmanes.gradle.versions.reporter.result.DependencyOutdated
 import com.github.benmanes.gradle.versions.reporter.result.Result
+import com.github.benmanes.gradle.versions.updates.VersionMapping
 import com.github.benmanes.gradle.versions.updates.gradle.GradleReleaseChannel.CURRENT
 import com.github.benmanes.gradle.versions.updates.gradle.GradleReleaseChannel.NIGHTLY
 import com.github.benmanes.gradle.versions.updates.gradle.GradleReleaseChannel.RELEASE_CANDIDATE
@@ -111,6 +113,26 @@ class PlainTextReporter
       }
     }
 
+    /**
+     * Returns the row's version steps joined by arrows, from the version in use through the newest
+     * the resolution accepted to the pre-release step, each printed only where it is newer than the
+     * one before it, as the Gradle row's release candidate is. Compared rather than deduplicated:
+     * `available[revision]` is blank for a revision outside the three the report knows, and a step
+     * equal to the one before it is not the only one that has nothing to add.
+     */
+    private fun breadcrumb(dependency: DependencyOutdated): String {
+      val steps = listOfNotNull(dependency.version, dependency.available[revision], dependency.available.preRelease)
+      val newestFirst = VersionMapping.versionComparator()
+      val printed = mutableListOf<String>()
+      for (step in steps) {
+        if (step.isEmpty()) continue
+        if (printed.isEmpty() || newestFirst.compare(printed.last(), step) < 0) {
+          printed.add(step)
+        }
+      }
+      return printed.joinToString(" -> ")
+    }
+
     private fun writeUpgrades(
       printStream: OutputStream,
       result: Result,
@@ -121,7 +143,7 @@ class PlainTextReporter
         printStream.println("The following dependencies have later $revision versions:")
         for (dependency in upgradeVersions) {
           val currentVersion = dependency.version
-          printStream.println(" - ${label(dependency)} [$currentVersion -> ${dependency.available[revision]}]")
+          printStream.println(" - ${label(dependency)} [${breadcrumb(dependency)}]")
           dependency.userReason?.let {
             printStream.println("     $it")
           }

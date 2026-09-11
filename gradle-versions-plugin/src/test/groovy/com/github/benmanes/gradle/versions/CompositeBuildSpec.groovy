@@ -2636,8 +2636,8 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/550')
-  def "An aggregator's rule tightens a merged row where the child baked an unstable ceiling"() {
-    given: "the child bakes the pre-release ceiling with the built-in check off, and no rule of its own"
+  def "An aggregator's rule drops the pre-release step of a merged row"() {
+    given: "the child reports the step, having no rule of its own to drop it"
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<
       """
@@ -2696,16 +2696,45 @@ final class CompositeBuildSpec extends Specification {
     def included = report('child/')
     def json = report('')
 
-    then: "the child's own report bakes the pre-release ceiling, but the merged row is tightened by the outer's rule"
+    then: "the child's own report prints the step, and the outer's rule rejects it where they merge"
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.task(':child:dependencyUpdates').outcome == SUCCESS
-    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '3.0-Beta1'
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '2.0'
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.preRelease == '3.0-Beta1'
     json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.release == '2.0'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.preRelease == null
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
-  def "The report's pre-release check rejects a merged row its child let through"() {
-    given: 'a child with the built-in check off, and an outer with no rule of its own'
+  def "The report's rejectPreReleases drops the step from a merged row its child prints"() {
+    given: 'an outer that leaves the step out, over a child that keeps it'
+    unstableCeilingComposite(
+      "tool 'com.probe:unstable-ceiling:1.0'",
+      '',
+      """
+        tasks.named('dependencyUpdates').configure {
+          rejectPreReleases = true
+        }
+      """.stripIndent(),
+    )
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates', '-DoutputFormatter=plain,json')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the child prints the pre-release step, and the report it is merged into leaves it out"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    result.task(':child:dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '2.0'
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.preRelease == '3.0-Beta1'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '2.0'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.preRelease == null
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "A merged row keeps the step its child recorded where the outer configures nothing"() {
+    given: 'neither build states a setting, so both are at the defaults'
     unstableCeilingComposite()
 
     when:
@@ -2713,15 +2742,43 @@ final class CompositeBuildSpec extends Specification {
     def included = report('child/')
     def json = report('')
 
-    then: "the child keeps the pre-release it resolved, and the report it is merged into does not"
+    then: 'both reports read alike, since nothing in the outer moves the row'
     result.task(':dependencyUpdates').outcome == SUCCESS
-    result.task(':child:dependencyUpdates').outcome == SUCCESS
-    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '3.0-Beta1'
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '2.0'
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.preRelease ==
+      '3.0-Beta1'
     json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '2.0'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.preRelease ==
+      '3.0-Beta1'
+    result.output.contains('com.probe:unstable-ceiling [1.0 -> 2.0 -> 3.0-Beta1]')
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
-  def "The report's preReleaseVersionIf convention rejects a merged row"() {
+  def "The report's revision leaves out a merged step its child resolved under another"() {
+    given: 'a child at the integration revision, over an outer at the default milestone'
+    unstableCeilingComposite(
+      "tool 'com.example:snapshot-mixed:1.5'",
+      "revision = 'integration'",
+      '',
+    )
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates', '-DoutputFormatter=plain,json')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the child reports the snapshot it resolved for"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'snapshot-mixed' }?.available?.preRelease ==
+      '2.0-SNAPSHOT'
+
+    and: "the report it is merged into is not at a revision that accepts one"
+    json.outdated.dependencies.every { it.name != 'snapshot-mixed' }
+    json.current.dependencies.find { it.name == 'snapshot-mixed' }?.version == '1.5'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's preReleaseVersionIf convention moves a merged row to its step"() {
     given: "an outer with a convention neither build's markers cover, and a child with none"
     unstableCeilingComposite(
       "tool 'com.example:prerelease-flagged:1.0'",
@@ -2738,22 +2795,24 @@ final class CompositeBuildSpec extends Specification {
     def included = report('child/')
     def json = report('')
 
-    then: "the convention reaches the row the child resolved without it, so the row is up to date"
+    then: "the convention reaches the row the child resolved without it, so the flagged version moves"
     result.task(':dependencyUpdates').outcome == SUCCESS
     included.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.milestone == '3.0-flagged'
-    json.outdated.dependencies.every { it.name != 'prerelease-flagged' }
-    json.current.dependencies.find { it.name == 'prerelease-flagged' }?.version == '1.0'
+    included.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.preRelease == null
+    json.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.milestone == null
+    json.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.preRelease == '3.0-flagged'
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
-  def "The report's exemption keeps a merged pre-release row the check would reject"() {
-    given: 'an outer exempting the one module from its built-in checks'
+  def "The report's exemption keeps a merged row its own convention would move"() {
+    given: 'an outer adding a convention and exempting the one module it would match'
     unstableCeilingComposite(
-      "tool 'com.probe:unstable-ceiling:1.0'",
-      'rejectPreReleases = false',
+      "tool 'com.example:prerelease-flagged:1.0'",
+      '',
       """
         tasks.named('dependencyUpdates').configure {
-          exemptFromBuiltInChecksIf { candidate.module == 'unstable-ceiling' }
+          preReleaseVersionIf { it.endsWith('-flagged') }
+          exemptFromBuiltInChecksIf { candidate.module == 'prerelease-flagged' }
         }
       """.stripIndent(),
     )
@@ -2762,24 +2821,24 @@ final class CompositeBuildSpec extends Specification {
     def result = run('dependencyUpdates', '-DoutputFormatter=plain,json')
     def json = report('')
 
-    then: 'the exemption is read at the report, so the merged row keeps the ceiling the child baked'
+    then: 'the exemption is read at the report, so the merged row keeps the version the child baked'
     result.task(':dependencyUpdates').outcome == SUCCESS
-    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '3.0-Beta1'
+    json.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.milestone == '3.0-flagged'
+    json.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.preRelease == null
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
-  def "The report's own convention and exemption reach a merged row on the cache hit"() {
-    given: 'an outer that adds a convention and exempts one module, over a child with neither'
+  def "The report's own convention reaches a merged row on the cache hit"() {
+    given: 'an outer that adds a convention neither build\'s markers cover, over a child with none'
     unstableCeilingComposite(
       """
         tool 'com.probe:unstable-ceiling:1.0'
         tool 'com.example:prerelease-flagged:1.0'
       """.stripIndent(),
-      'rejectPreReleases = false',
+      '',
       """
         tasks.named('dependencyUpdates').configure {
           preReleaseVersionIf { it.endsWith('-flagged') }
-          exemptFromBuiltInChecksIf { candidate.module == 'unstable-ceiling' }
         }
       """.stripIndent(),
     )
@@ -2788,20 +2847,21 @@ final class CompositeBuildSpec extends Specification {
     def store = run('dependencyUpdates', '--configuration-cache')
     def hit = run('dependencyUpdates', '--configuration-cache')
 
-    then: 'both are read from the slots that survive the cache, so the hit reports what the store did'
+    then: 'the convention is read from the copy that survives the cache, so the hit matches the store'
     store.task(':dependencyUpdates').outcome == SUCCESS
     hit.output.contains('Configuration cache entry reused.')
-    [store, hit].every { it.output.contains('com.probe:unstable-ceiling [1.0 -> 3.0-Beta1]') }
-    [store, hit].every { !it.output.contains('com.example:prerelease-flagged [1.0 ->') }
+    [store, hit].every { it.output.contains('com.probe:unstable-ceiling [1.0 -> 2.0 -> 3.0-Beta1]') }
+    [store, hit].every { it.output.contains('com.example:prerelease-flagged [1.0 -> 3.0-flagged]') }
   }
 
   /**
-   * Writes an outer that aggregates a child with its pre-release check off, so the child bakes a
-   * ceiling its own build accepts and the outer's report is the only place the check can apply.
+   * Writes an outer that aggregates a child with no settings of its own, so a merged row carries
+   * what the child's defaults produced and the outer's report is the only place its own convention,
+   * exemption and rules can apply.
    */
   private void unstableCeilingComposite(
       String childDependency = "tool 'com.probe:unstable-ceiling:1.0'",
-      String childConfig = 'rejectPreReleases = false',
+      String childConfig = '',
       String outerConfig = '') {
     testProjectDir.newFile('settings.gradle') << "includeBuild 'child'"
     testProjectDir.newFile('build.gradle') <<

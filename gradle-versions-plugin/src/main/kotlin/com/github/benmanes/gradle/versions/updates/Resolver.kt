@@ -51,7 +51,6 @@ class Resolver internal constructor(
   private val resolutionStrategy: Action<in ResolutionStrategyWithCurrent>?,
   private val checkConstraints: Boolean,
   private val rejectOutOfBounds: Boolean,
-  private val rejectPreReleases: Boolean,
   /** The convention added to the pre-release check in the build, null when none is configured. */
   preReleaseVersionIf: Spec<String>?,
   /** The candidates exempted from both built-in checks in the build, null when none is configured. */
@@ -67,7 +66,7 @@ class Resolver internal constructor(
 ) {
   /**
    * Retained so the arity released before the bound and pre-release filters were added still links.
-   * Both filters are on.
+   * The bound filter is on, and the pre-release check is applied to every resolution.
    */
   constructor(
     project: Project,
@@ -78,7 +77,6 @@ class Resolver internal constructor(
     resolutionStrategy,
     checkConstraints,
     rejectOutOfBounds = true,
-    rejectPreReleases = true,
     preReleaseVersionIf = null,
     exemptFromBuiltInChecksIf = null,
     settingsConfigurations = null,
@@ -158,7 +156,11 @@ class Resolver internal constructor(
     configuration.incoming.dependencies
 
     val current = getCurrentCoordinates(configuration, declaredKeys(), nameDeclaringConfiguration, scriptClasspath)
-    val latestConfiguration = createLatestConfiguration(configuration, revision, current)
+    // Filled by the pre-release filter as the first-accept walk reaches each rejected candidate,
+    // and read once the walk below has run. Local to the resolution rather than held on the
+    // resolver, which resolves the configurations of a project concurrently.
+    val preReleases = ConcurrentHashMap<Coordinate.Key, String>()
+    val latestConfiguration = createLatestConfiguration(configuration, revision, current, preReleases)
     val root = latestConfiguration.incoming.resolutionResult.root
     // The recording pass enriches the report rather than producing it, so a failure in it costs
     // the candidate lists alone. Letting it throw would discard every status the first-accept walk
@@ -167,13 +169,14 @@ class Resolver internal constructor(
       .onFailure { e ->
         project.logger.info("Skipping the recorded candidates of ${configuration.name}", e)
       }
-    return getStatus(current, root)
+    return getStatus(current, root, preReleases)
   }
 
   /** Returns the version status of the configuration's dependencies. */
   private fun getStatus(
     current: CurrentCoordinates,
     root: ResolvedComponentResult,
+    preReleases: Map<Coordinate.Key, String>,
   ): Set<DependencyStatus> {
     val coordinates = current.coordinates
     val result = hashSetOf<DependencyStatus>()
@@ -192,7 +195,14 @@ class Resolver internal constructor(
           val contributed = coord.key in current.contributedKeys
           val configurations = current.contributedConfigurations[coord.key].orEmpty()
           result.add(
-            DependencyStatus(coord, resolvedCoordinate.version, projectUrl, contributed, configurations),
+            DependencyStatus(
+              coord,
+              resolvedCoordinate.version,
+              projectUrl,
+              contributed,
+              configurations,
+              preReleases[coord.key],
+            ),
           )
         }
         is UnresolvedDependencyResult -> {
@@ -214,6 +224,7 @@ class Resolver internal constructor(
     configuration: Configuration,
     revision: String,
     current: CurrentCoordinates,
+    preReleases: MutableMap<Coordinate.Key, String>,
   ): Configuration {
     val latest = queryDependencies(configuration, current)
 
@@ -270,10 +281,10 @@ class Resolver internal constructor(
     copy.resolutionStrategy.disableDependencyVerification()
 
     addDeclaredBoundFilter(copy, current.coordinates)
-    addPreReleaseFilter(copy, current.coordinates)
     addRevisionFilter(copy, revision, current.coordinates)
     addAttributes(copy, configuration)
     addCustomResolutionStrategy(copy, current.coordinates)
+    addPreReleaseFilter(copy, current.coordinates, preReleases)
 
     disableAutoTargetJvm(copy)
     return copy
@@ -552,25 +563,47 @@ class Resolver internal constructor(
 
   /**
    * Adds the filter that leaves out a pre-release candidate while the current version is a release,
-   * as [ComponentSelectionWithCurrent.isPreRelease] reads both. Registered ahead of the revision
-   * filter for the reason given on [addDeclaredBoundFilter], and on the configuration
-   * rather than through [DependencyUpdatesTask.rejectVersionIf]: that setter marks the task's
-   * parameters as having a resolution strategy, and a project marked that way is resolved with its
-   * own strategy instead of its nearest ancestor's, so routing this filter through it would stop
-   * every subproject inheriting the root's `rejectVersionIf`.
+   * as [ComponentSelectionWithCurrent.isPreRelease] reads both, and records the newest candidate it
+   * rejects as the row's pre-release step. Registered on the configuration rather than through
+   * [DependencyUpdatesTask.rejectVersionIf]: that setter marks the task's parameters as having a
+   * resolution strategy, and a project marked that way is resolved with its own strategy instead of
+   * its nearest ancestor's, so routing this filter through it would stop every subproject
+   * inheriting the root's `rejectVersionIf`.
+   *
+   * Registered last, after the bound and revision filters and after the build's own rules, which
+   * is the opposite of what [addDeclaredBoundFilter] describes and is what makes the recorded
+   * version exact: a rejected candidate is not passed to the rules that follow, so a candidate that
+   * reaches this filter passed every other one, and the first rejection here is the newest version
+   * that fails the pre-release check alone. The cost of the later position is the revision filter's
+   * metadata read on the pre-release candidates above the verdict, bounded by how many of those a
+   * repository publishes. The build's own rules are now evaluated for those candidates, which the
+   * earlier position kept from them.
+   *
+   * The newest rejection is kept by the comparator rather than the first one reached. A module
+   * found in more than one repository is walked newest-first per repository rather than newest-first
+   * overall, so the first rejection is the newest of one repository alone.
+   *
+   * Installed whether or not `rejectPreReleases` is set, since that setting governs whether the
+   * recorded step is printed rather than how the configuration resolves.
    */
   private fun addPreReleaseFilter(
     configuration: Configuration,
     currentCoordinates: Map<Coordinate.Key, Coordinate>,
+    preReleases: MutableMap<Coordinate.Key, String>,
   ) {
-    if (!rejectPreReleases) {
-      return
-    }
     configuration.resolutionStrategy { inner ->
       ResolutionStrategyWithCurrent(inner, currentCoordinates, {}, isPreRelease).componentSelection { rules ->
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
             if (current.isPreRelease() && !isExempt(current)) {
+              val candidate = current.candidate
+              val key = Coordinate.Key(candidate.group, candidate.module)
+              preReleases.merge(key, candidate.version) { seen, found ->
+                // Built here rather than held on the resolver, which resolves the configurations of
+                // one project concurrently, and reached only where two candidates of one module
+                // compete rather than once per candidate.
+                if (VersionMapping.versionComparator().compare(seen, found) >= 0) seen else found
+              }
               current.reject("Pre-release rejected by rejectPreReleases")
             }
           },

@@ -143,9 +143,6 @@ internal fun <T : Any> settingOf(
 /** The revision level resolved against when neither the build nor an override states one. */
 internal const val DEFAULT_REVISION = "milestone"
 
-/** The revision that selects the newest version whatever its qualifier, snapshots included. */
-internal const val INTEGRATION_REVISION = "integration"
-
 /** The task settings that a project's producer reads while its input is realized; null is unset. */
 internal class DependencyUpdatesParameters {
   var revision: String? = null
@@ -453,13 +450,13 @@ internal abstract class DependencyUpdatesParametersService :
           fromCommandLine = chain.firstNotNullOfOrNull { it.rejectOutOfBoundsFromCommandLine },
           configured = chain.firstNotNullOfOrNull { it.rejectOutOfBounds } ?: true,
         ),
-      // Off by default under the integration revision, which selects the newest version whatever
-      // its qualifier, snapshots included. An explicit setting still applies there.
+      // Off by default, whatever the revision, so that a row whose repository lists a newer
+      // pre-release prints it as the step after the newest release. `gradleReleaseChannel` prints
+      // the Gradle row's release candidate the same way and defaults to the same answer.
       rejectPreReleases =
         settingOf(
           fromCommandLine = chain.firstNotNullOfOrNull { it.rejectPreReleasesFromCommandLine },
-          configured =
-            chain.firstNotNullOfOrNull { it.rejectPreReleases } ?: (revision != INTEGRATION_REVISION),
+          configured = chain.firstNotNullOfOrNull { it.rejectPreReleases } ?: false,
         ),
     )
   }
@@ -997,7 +994,6 @@ private fun statusesOf(
       parameters.resolutionStrategy,
       checkConstraints = checkConstraints,
       rejectOutOfBounds = parameters.rejectOutOfBounds,
-      rejectPreReleases = parameters.rejectPreReleases,
       preReleaseVersionIf = parameters.preReleaseVersionIf,
       exemptFromBuiltInChecksIf = parameters.exemptFromBuiltInChecksIf,
       settingsConfigurations = settingsConfigurations,

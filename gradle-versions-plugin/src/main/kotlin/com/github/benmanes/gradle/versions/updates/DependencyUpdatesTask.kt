@@ -4,6 +4,7 @@ import com.github.benmanes.gradle.versions.reporter.Reporter
 import com.github.benmanes.gradle.versions.reporter.result.Result
 import com.github.benmanes.gradle.versions.reporter.result.SkippedConfiguration
 import com.github.benmanes.gradle.versions.updates.gradle.GradleReleaseChannel
+import com.github.benmanes.gradle.versions.updates.gradle.GradleReleaseChannel.CURRENT
 import com.github.benmanes.gradle.versions.updates.gradle.GradleReleaseChannel.RELEASE_CANDIDATE
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentFilter
 import com.github.benmanes.gradle.versions.updates.resolutionstrategy.ComponentSelectionWithCurrent
@@ -75,7 +76,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
           rejectPreReleases =
             settingOf(
               parameters.rejectPreReleasesFromCommandLine,
-              parameters.rejectPreReleases ?: (revision != INTEGRATION_REVISION),
+              parameters.rejectPreReleases ?: false,
             ),
         )
       },
@@ -101,10 +102,31 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
 
   private var gradleReleaseChannelFromCommandLine: String? = null
 
-  /** Returns the resolution revision level. */
-  @Input
-  var gradleReleaseChannel: String = RELEASE_CANDIDATE.id
-    get() = settingOf(gradleReleaseChannelFromCommandLine, "gradleReleaseChannel", field)
+  private var gradleReleaseChannelSetting: String? = null
+
+  /**
+   * Returns which Gradle releases are printed: `release-candidate`, unless the build turns
+   * [rejectPreReleases] on, and then `current` alone. Stating this property in the build, passing the
+   * option, or setting the system property is read ahead of that, so a build that leaves out every
+   * dependency's pre-release step and still wants the Gradle release candidate can say so.
+   *
+   * Derived rather than fixed so that one setting answers for both. The Gradle row is printed with
+   * the release candidate after the newest release, the same breadcrumb used for every dependency
+   * row, and a report with the second step left out of every dependency row while Gradle keeps it
+   * puts two opposite policies in one file.
+   */
+  @get:Input
+  var gradleReleaseChannel: String
+    get() =
+      settingOf(
+        gradleReleaseChannelFromCommandLine,
+        "gradleReleaseChannel",
+        gradleReleaseChannelSetting
+          ?: if (rejectPreReleases) CURRENT.id else RELEASE_CANDIDATE.id,
+      )
+    set(value) {
+      gradleReleaseChannelSetting = value
+    }
 
   /** Sets the Gradle release channel for this invocation alone. */
   @Option(
@@ -298,11 +320,11 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   }
 
   /**
-   * Whether a pre-release candidate is left out of the report while the current version is not
-   * itself a pre-release, so that newer pre-releases are still reported to a build on one. A
-   * convention the built-in markers do not cover is added to the check with [preReleaseVersionIf].
-   * Off by default under the `integration` revision, which selects the newest version whatever its
-   * qualifier, and read back as `false` there unless set.
+   * Whether the pre-release step is left out of the report, the newest candidate the pre-release
+   * check rejects while the version in use is not itself a pre-release. A convention the built-in
+   * markers do not cover is added to the check with [preReleaseVersionIf]. Off by default, under
+   * every revision, so the step is printed after the newest release rather than in place of it. It
+   * governs [gradleReleaseChannel]'s default as well, so one setting answers for both rows.
    */
   @get:Input
   var rejectPreReleases: Boolean
@@ -499,14 +521,17 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     // resolved, which is the same condition that stores the convention and the exemption for the
     // report. Everywhere else the producers already applied the identical check, under the settings
     // they inherited, so applying it again would add nothing and would read the two predicates from
-    // properties that are gone from a restored cache entry.
+    // properties that are gone from a restored cache entry. It is applied whether or not
+    // `rejectPreReleases` is set, since that setting governs whether the step is printed: a merged
+    // row whose producer knew nothing of the convention configured here still has to be moved off
+    // the version this report counts as a pre-release.
     val mergesRowsResolvedElsewhere = parameters.mergesRowsResolvedElsewhere
     val reportRules =
       ReportRules(
         strategy,
         logger,
         revision,
-        mergesRowsResolvedElsewhere && rejectPreReleases,
+        mergesRowsResolvedElsewhere,
         parameters.preReleaseVersionIf ?: parameters.storedPreReleaseVersionIf,
         parameters.exemptFromBuiltInChecksIf ?: parameters.storedExemptFromBuiltInChecksIf,
       )
@@ -533,6 +558,7 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     reporterFor(
       statuses, projectPath, logger, revision, outputFormatter(), outputDirectory(), reportfileName,
       checkForGradleUpdate, gradleVersionsApiBaseUrl, gradleReleaseChannel, skipped,
+      rejectPreReleases,
     ).write()
   }
 

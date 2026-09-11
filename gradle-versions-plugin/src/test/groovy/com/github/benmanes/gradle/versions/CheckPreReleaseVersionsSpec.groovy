@@ -3,6 +3,7 @@ package com.github.benmanes.gradle.versions
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 import groovy.json.JsonSlurper
+import groovy.xml.XmlSlurper
 import org.gradle.testkit.runner.GradleRunner
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
@@ -112,19 +113,135 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     return new JsonSlurper().parseText(new File(reportFolder, 'report.json').text) as Map
   }
 
-  def 'a pre-release candidate is hidden by default'() {
+  def 'the newest stable and the newest pre-release are both reported'() {
+    given:
+    writeBuildFile('com.example:stepped-widget:1.0')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies*.name == ['stepped-widget']
+    report.outdated.dependencies[0].available.milestone == '1.1'
+    report.outdated.dependencies[0].available.preRelease == '1.2-beta'
+  }
+
+  def 'rejectPreReleases leaves the pre-release step out and keeps the stable one'() {
+    given:
+    writeBuildFile('com.example:stepped-widget:1.0', 'rejectPreReleases = true')
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies*.name == ['stepped-widget']
+    report.outdated.dependencies[0].available.milestone == '1.1'
+    report.outdated.dependencies[0].available.preRelease == null
+  }
+
+  def 'the negative command line option restores the step a build leaves out'() {
+    given: 'the build leaves the step out, which the option asks for back'
+    writeBuildFile('com.example:stepped-widget:1.0', 'rejectPreReleases = true')
+
+    when:
+    def report = runReport(['--no-reject-pre-releases'])
+
+    then:
+    report.outdated.dependencies*.name == ['stepped-widget']
+    report.outdated.dependencies[0].available.milestone == '1.1'
+    report.outdated.dependencies[0].available.preRelease == '1.2-beta'
+  }
+
+  def 'the XML and JSON reports carry the step, and the HTML cell links both versions'() {
+    given:
+    writeBuildFile('com.example:stepped-widget:1.0', "outputFormatter = 'json,xml,html'")
+
+    when:
+    runUpdates()
+
+    then: 'the XML element trails the revision level the resolution filled'
+    def available = new XmlSlurper()
+      .parse(new File(reportFolder, 'report.xml'))
+      .outdated.dependencies.outdatedDependency[0].available
+    available.milestone.text() == '1.1'
+    available.preRelease.text() == '1.2-beta'
+    available.release.isEmpty()
+    available.integration.isEmpty()
+
+    and: 'the JSON field trails them too'
+    def json = new JsonSlurper()
+      .parseText(new File(reportFolder, 'report.json').text).outdated.dependencies[0]
+    json.available.milestone == '1.1'
+    json.available.preRelease == '1.2-beta'
+
+    and: 'each HTML version is linked on its own, so neither Sonatype url holds the pair'
+    def html = new File(reportFolder, 'report.html').text
+    html.contains('stepped-widget/1.1/bundle')
+    html.contains('stepped-widget/1.2-beta/bundle')
+    !html.contains('1.1 -&gt; 1.2-beta/bundle')
+    !html.contains('1.1 -> 1.2-beta/bundle')
+  }
+
+  def 'under the release revision the step trails the release the resolution accepted'() {
+    given:
+    writeBuildFile('com.example:stepped-widget:1.0', "revision = 'release'")
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies[0].available.release == '1.1'
+    report.outdated.dependencies[0].available.milestone == null
+    report.outdated.dependencies[0].available.preRelease == '1.2-beta'
+  }
+
+  def 'the plain text row prints both steps'() {
+    given:
+    writeBuildFile('com.example:stepped-widget:1.0', "outputFormatter = 'text'")
+
+    when:
+    runUpdates()
+
+    then:
+    new File(reportFolder, 'report.txt').text
+      .contains(' - com.example:stepped-widget [1.0 -> 1.1 -> 1.2-beta]')
+  }
+
+  def 'the plain text row skips a step that is not newer'() {
+    given: 'the only candidate newer than the declared version is a pre-release'
+    writeBuildFile('com.example:prerelease-widget:1.0', "outputFormatter = 'text'")
+
+    when:
+    runUpdates()
+
+    then:
+    new File(reportFolder, 'report.txt').text
+      .contains(' - com.example:prerelease-widget [1.0 -> 1.2-beta]')
+  }
+
+  private void runUpdates(List<String> extraArguments = []) {
+    def result = GradleRunner.create()
+      .withProjectDir(testProjectDir.root)
+      .withArguments(['dependencyUpdates'] + extraArguments)
+      .withPluginClasspath()
+      .build()
+    assert result.task(':dependencyUpdates').outcome == SUCCESS
+  }
+
+  def 'a pre-release candidate is the step after the version in use by default'() {
     given:
     writeBuildFile('com.example:prerelease-widget:1.0')
 
     when:
     def report = runReport()
 
-    then:
-    report.current.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies.isEmpty()
+    then: 'no release is newer, so only the pre-release step is reported'
+    report.outdated.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies[0].available.milestone == null
+    report.outdated.dependencies[0].available.preRelease == '1.2-beta'
   }
 
-  def 'with rejectPreReleases false the pre-release candidate is reported'() {
+  def 'rejectPreReleases false is the default and spelling it out changes nothing'() {
     given:
     writeBuildFile('com.example:prerelease-widget:1.0', 'rejectPreReleases = false')
 
@@ -133,19 +250,19 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then:
     report.outdated.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies[0].available.milestone == '1.2-beta'
+    report.outdated.dependencies[0].available.preRelease == '1.2-beta'
   }
 
-  def 'the command line option turns the filter off for one run'() {
+  def 'the command line option leaves the step out for one run'() {
     given:
     writeBuildFile('com.example:prerelease-widget:1.0')
 
     when:
-    def report = runReport(['--no-reject-pre-releases'])
+    def report = runReport(['--reject-pre-releases'])
 
     then:
-    report.outdated.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies[0].available.milestone == '1.2-beta'
+    report.current.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies.isEmpty()
   }
 
   def 'the command line option overrides the property set to false in the build'() {
@@ -214,9 +331,10 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     when:
     def report = runReport()
 
-    then: 'neither candidate survives, so the two compose rather than one replacing the other'
-    report.current.dependencies*.name == ['guava']
-    report.outdated.dependencies.isEmpty()
+    then: 'the rule rejects 16.0 outright, and the built-in check reports 16.0-rc1 as the step'
+    report.outdated.dependencies*.name == ['guava']
+    report.outdated.dependencies[0].available.milestone == null
+    report.outdated.dependencies[0].available.preRelease == '16.0-rc1'
   }
 
   def 'under the integration revision a snapshot is reported'() {
@@ -228,11 +346,12 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then:
     report.outdated.dependencies*.name == ['snapshot-mixed']
-    report.outdated.dependencies[0].available.integration == '2.0-SNAPSHOT'
+    report.outdated.dependencies[0].available.integration == null
+    report.outdated.dependencies[0].available.preRelease == '2.0-SNAPSHOT'
   }
 
-  def 'under the integration revision the filter is off, and the property reads false'() {
-    given: 'a beta rather than a snapshot, so the exemption covers the whole revision'
+  def 'the property reads false by default, and the pre-release is the second step'() {
+    given: 'a beta rather than a snapshot, so the revision filter leaves the candidate alone'
     writeBuildFile('com.example:prerelease-widget:1.0', '''
           revision = 'integration'
           doLast { println "rejectPreReleases=$rejectPreReleases" }
@@ -250,7 +369,8 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.output.contains('rejectPreReleases=false')
     report.outdated.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies[0].available.integration == '1.2-beta'
+    report.outdated.dependencies[0].available.integration == null
+    report.outdated.dependencies[0].available.preRelease == '1.2-beta'
   }
 
   def 'under the integration revision an explicit setting still applies'() {
@@ -317,15 +437,15 @@ final class CheckPreReleaseVersionsSpec extends Specification {
   }
 
   def 'a subproject inherits rejectPreReleases from the root task'() {
-    given:
-    writeMultiProjectBuild('com.example:prerelease-widget:1.0', 'rejectPreReleases = false')
+    given: 'the root turns the step off, which the default would leave on'
+    writeMultiProjectBuild('com.example:prerelease-widget:1.0', 'rejectPreReleases = true')
 
     when:
     def report = runReport()
 
     then:
-    report.outdated.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies[0].available.milestone == '1.2-beta'
+    report.current.dependencies*.name == ['prerelease-widget']
+    report.outdated.dependencies.isEmpty()
   }
 
   def 'a Groovy rule reading isPreRelease leaves out what the property would, and no more'() {
@@ -458,19 +578,23 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     def report = runReport()
 
     then: 'the exemption reaches the version the widget both bounds out and marks pre-release'
-    report.outdated.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies[0].available.milestone == '1.2-beta'
+    def widget = report.outdated.dependencies.find { it.name == 'prerelease-widget' }
+    widget.available.milestone == '1.2-beta'
+    widget.available.preRelease == null
 
-    and: 'the added convention holds the flagged module and the bound check holds guava'
-    report.current.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
+    and: 'the added convention holds the flagged module back to a second step'
+    report.outdated.dependencies.find { it.name == 'prerelease-flagged' }.available.preRelease == '3.0-flagged'
 
-    when: 'both options ask for what the two checks leave out'
-    def unfiltered = runReport(['--no-reject-pre-releases', '--no-reject-out-of-bounds'])
+    and: 'the bound check holds guava, which only the pre-release below the bound gets past'
+    report.outdated.dependencies.find { it.name == 'guava' }.available.preRelease == '16.0-rc1'
 
-    then: 'both checks are off for that run, and the exemption has nothing left to exempt'
+    when: 'the option asks for what the bound check leaves out'
+    def unfiltered = runReport(['--no-reject-out-of-bounds'])
+
+    then: 'the bound check is off for that run, and the exemption has nothing left to exempt there'
     unfiltered.outdated.dependencies*.name.sort() == ['guava', 'prerelease-flagged', 'prerelease-widget']
     unfiltered.outdated.dependencies.find { it.name == 'guava' }.available.milestone == '16.0'
-    unfiltered.outdated.dependencies.find { it.name == 'prerelease-flagged' }.available.milestone == '3.0-flagged'
+    unfiltered.outdated.dependencies.find { it.name == 'prerelease-flagged' }.available.preRelease == '3.0-flagged'
   }
 
   def 'a Groovy build exempting one module from both checks keeps the checks on for the rest'() {
@@ -500,9 +624,11 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     def report = runReport()
 
     then:
-    report.outdated.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies[0].available.milestone == '1.2-beta'
-    report.current.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
+    def widget = report.outdated.dependencies.find { it.name == 'prerelease-widget' }
+    widget.available.milestone == '1.2-beta'
+    widget.available.preRelease == null
+    report.outdated.dependencies.find { it.name == 'prerelease-flagged' }.available.preRelease == '3.0-flagged'
+    report.outdated.dependencies.find { it.name == 'guava' }.available.preRelease == '16.0-rc1'
   }
 
   def 'an exemption reading a negated member is narrowed to the other check'() {
@@ -609,7 +735,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies.find { it.name == 'prerelease-widget' }.available.milestone == '1.2-beta'
   }
 
-  def 'under the integration revision the added convention is off with the built-in check'() {
+  def 'under the integration revision the added convention marks the second step'() {
     given:
     writeBuildFile('com.example:prerelease-flagged:1.0', '''
           revision = 'integration'
@@ -621,7 +747,8 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then:
     report.outdated.dependencies*.name == ['prerelease-flagged']
-    report.outdated.dependencies[0].available.integration == '3.0-flagged'
+    report.outdated.dependencies[0].available.integration == null
+    report.outdated.dependencies[0].available.preRelease == '3.0-flagged'
   }
 
   def 'a qualifier not in the built-in markers is passed through'() {
@@ -648,16 +775,16 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies[0].available.milestone == '3.0-flagged'
   }
 
-  def 'the command line option turns off the added convention with the built-in check'() {
+  def 'the command line option leaves out a step the added convention marked'() {
     given:
     writeBuildFile('com.example:prerelease-flagged:1.0', "preReleaseVersionIf { it.endsWith('-flagged') }")
 
     when:
-    def report = runReport(['--no-reject-pre-releases'])
+    def report = runReport(['--reject-pre-releases'])
 
     then:
-    report.outdated.dependencies*.name == ['prerelease-flagged']
-    report.outdated.dependencies[0].available.milestone == '3.0-flagged'
+    report.current.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies.isEmpty()
   }
 
   def 'a rule reading isPreRelease answers for the added convention'() {
@@ -685,9 +812,10 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     when:
     def report = runReport()
 
-    then:
-    report.current.dependencies*.name == ['prerelease-flagged']
-    report.outdated.dependencies.isEmpty()
+    then: 'the convention reached the subproject, so the flagged candidate is the second step'
+    report.outdated.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies[0].available.milestone == null
+    report.outdated.dependencies[0].available.preRelease == '3.0-flagged'
   }
 
   def 'preReleaseVersionIf compiles and applies under the Kotlin DSL'() {
@@ -700,8 +828,8 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     def report = runReport()
 
     then:
-    report.current.dependencies*.name == ['prerelease-flagged']
-    report.outdated.dependencies.isEmpty()
+    report.outdated.dependencies*.name == ['prerelease-flagged']
+    report.outdated.dependencies[0].available.preRelease == '3.0-flagged'
   }
 
   def 'conventions added in two calls both apply'() {
@@ -720,7 +848,8 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     def report = runReport()
 
     then:
-    report.current.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
-    report.outdated.dependencies.isEmpty()
+    report.outdated.dependencies*.name.sort() == ['guava', 'prerelease-flagged']
+    report.outdated.dependencies.find { it.name == 'guava' }.available.preRelease == '16.0'
+    report.outdated.dependencies.find { it.name == 'prerelease-flagged' }.available.preRelease == '3.0-flagged'
   }
 }

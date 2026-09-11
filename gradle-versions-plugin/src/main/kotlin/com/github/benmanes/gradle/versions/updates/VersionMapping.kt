@@ -16,6 +16,14 @@ class VersionMapping(private val logger: Logger, statuses: List<PartialStatus>) 
   val current = sortedSetOf<Coordinate>()
   val latest = sortedSetOf<Coordinate>()
   val latestByCurrent = hashMapOf<Coordinate, Coordinate>()
+
+  /**
+   * The newest candidate left out by the pre-release check, per declared coordinate, absent where
+   * none was left out. Kept beside [latestByCurrent] rather than replacing its entry, so a row with
+   * both steps is reported with the newest version the resolution accepted as well as the one it
+   * did not.
+   */
+  val preReleaseByCurrent = hashMapOf<Coordinate, String>()
   private var comparator = makeVersionComparator()
 
   init {
@@ -27,6 +35,12 @@ class VersionMapping(private val logger: Logger, statuses: List<PartialStatus>) 
         val previous = latestByCurrent[status.coordinate]
         if (previous == null || comparator.compare(previous.version, latestCoordinate.version) < 0) {
           latestByCurrent[status.coordinate] = latestCoordinate
+        }
+        status.preReleaseVersion?.let { preRelease ->
+          val seen = preReleaseByCurrent[status.coordinate]
+          if (seen == null || comparator.compare(seen, preRelease) < 0) {
+            preReleaseByCurrent[status.coordinate] = preRelease
+          }
         }
       } else {
         unresolved.add(status.coordinate)
@@ -56,7 +70,14 @@ class VersionMapping(private val logger: Logger, statuses: List<PartialStatus>) 
       if (result <= -1) {
         upgrade.add(coordinate)
       } else if (result == 0) {
-        upToDate.add(coordinate)
+        // A module whose only newer candidate is a pre-release resolves to the version already
+        // declared, so the row is an upgrade by the pre-release step alone and the breadcrumb
+        // prints that step in place of the middle one.
+        if (preReleaseByCurrent.containsKey(coordinate)) {
+          upgrade.add(coordinate)
+        } else {
+          upToDate.add(coordinate)
+        }
       } else {
         downgrade.add(coordinate)
       }
