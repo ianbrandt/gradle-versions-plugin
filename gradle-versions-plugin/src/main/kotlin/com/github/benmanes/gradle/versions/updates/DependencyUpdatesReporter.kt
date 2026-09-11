@@ -334,7 +334,11 @@ class DependencyUpdatesReporter(
     coordinate: Coordinate,
     key: Map<String, String>,
   ): DependencyOutdated {
-    val laterVersion = latestFor(coordinate, key)
+    // Left null where no release is newer than the version in use, which a row reported for its
+    // pre-release step alone is. Reporting the version in use as the later one would read as an
+    // entry with nothing to upgrade to, and a consumer comparing the two would find no update in a
+    // row this report put among the outdated ones.
+    val laterVersion = latestFor(coordinate, key)?.takeIf { it != coordinate.version }
     val preRelease = preReleaseByCurrent[coordinate]
     val available =
       when (revision) {

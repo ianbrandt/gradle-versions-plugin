@@ -732,7 +732,8 @@ Gradle row reports `current` alone.
 The pre-release step is the newest candidate that fails the pre-release check
 alone: the bound check, the revision and any `rejectVersionIf` filter are
 applied to it first, so a candidate one of those rejects is not printed as a
-step. It is left out entirely when the current version is itself a pre-release,
+step. That ordering is also why a filter is called for pre-release candidates it
+was never called for before. It is left out entirely when the current version is itself a pre-release,
 in which case newer pre-releases are the row's accepted version instead.
 The markers are `alpha`, `beta`, `canary`, `candidate`, `cr`, `dev`,
 `draft`, `ea`, `eap`, `experimental`, `m`, `milestone`, `nightly`, `pr`, `pre`,
@@ -2498,6 +2499,11 @@ the entries merged from an included build:
 >   arguments has to be recompiled.
 
 > [!NOTE]
+> - A `rejectVersionIf` filter is now applied to a pre-release candidate before
+>   the built-in check leaves it out, where the built-in check ran first and the
+>   filter never saw one. A filter with a side effect runs it for those
+>   candidates too (see [Filtering unstable
+>   versions](#filtering-unstable-versions)).
 > - `gradleReleaseChannel` now takes its default from `rejectPreReleases`, so a
 >   build that leaves out every dependency's pre-release step no longer reports
 >   the Gradle release candidate. The default is unchanged at

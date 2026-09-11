@@ -124,16 +124,6 @@ internal class ReportRules(
     if (status.unresolved != null) {
       return status
     }
-    val moduleVersions =
-      status.projectPath
-        ?.let { versionsByProjectPath[it] }
-        ?.get("${status.group}:${status.name}")
-        .orEmpty()
-    val ceilingIndex = moduleVersions.indexOf(status.latestVersion)
-    if (ceilingIndex < 0) {
-      return status
-    }
-
     val rowKey = Coordinate.Key(status.group, status.name)
     val current =
       Coordinate(
@@ -151,17 +141,29 @@ internal class ReportRules(
     current.onScriptClasspath = status.onScriptClasspath
     currentHolder.clear()
     currentHolder[rowKey] = current
+    // Read after the holder is filled, since a rule reads the version in use through it.
     val rules = collector.rulesFor(status.group, status.name)
+
+    // The step a producer recorded sits above that producer's verdict, which the walk below starts
+    // at and never rises above, so this report's revision and its own rules are applied to it here.
+    // The producer answered under its own settings, which an including build may have set otherwise.
+    var preRelease: String? = status.preReleaseVersion?.takeIf { keptAsStep(status, it, rules) }
+
+    val moduleVersions =
+      status.projectPath
+        ?.let { versionsByProjectPath[it] }
+        ?.get("${status.group}:${status.name}")
+        .orEmpty()
+    val ceilingIndex = moduleVersions.indexOf(status.latestVersion)
+    if (ceilingIndex < 0) {
+      // Nothing to walk, so the row keeps its verdict; the step still answers to this report.
+      return if (preRelease == status.preReleaseVersion) status else status.copy(preReleaseVersion = preRelease)
+    }
 
     // Kept for the ceiling candidate alone (the first iterated below): `selectorVersion` in the
     // synthesized UnresolvedInfo is always the ceiling, so the reason reported has to be why that
     // version was rejected rather than why some older candidate further down the walk was.
     var ceilingReason: String? = null
-    // The newest candidate this report's pre-release check left out, which the producer's own check
-    // passed because the convention or the exemption configured here reaches further. Reported as
-    // the row's pre-release step, the same place a locally resolved row carries it, and only when
-    // the producer recorded none of its own.
-    var preRelease: String? = status.preReleaseVersion?.takeIf { keptAsStep(status, it, ceilingIndex, ceilingIndex, rules) }
     for (index in ceilingIndex until moduleVersions.size) {
       val version = moduleVersions[index]
       val shim = RecordedComponentSelection(status.group, status.name, version)
@@ -173,7 +175,7 @@ internal class ReportRules(
         if (index == ceilingIndex) {
           ceilingReason = PRE_RELEASE_REASON
         }
-        if (preRelease == null && keptAsStep(status, version, index, ceilingIndex, rules)) {
+        if (preRelease == null && keptAsStep(status, version, rules)) {
           preRelease = version
         }
         continue
@@ -236,21 +238,20 @@ internal class ReportRules(
 
   /**
    * Returns whether [version] is printed as this row's pre-release step, which it is when this
-   * report's revision and its own rules both accept it. The rules are applied here rather than in
-   * the walk above, which reaches a pre-release candidate only to skip it, and applied to a shim of
-   * their own so that the walk's verdict for the same candidate is not overwritten. A rule reading
-   * the metadata absent from the record leaves the step alone, as an undecided candidate is left
-   * alone everywhere else. The version the producer recorded sits above the verdict, where the walk
-   * never reaches, so it is checked here too.
+   * report's revision and its own rules both accept it. The revision is applied to every step, the
+   * producer's recorded one included: a producer resolving at the `integration` revision records a
+   * snapshot-grade step that a report at `release` or `milestone` leaves out. The rules are applied
+   * here rather than in the walk above, which reaches a pre-release candidate only to skip it, and
+   * applied to a shim of their own so that the walk's verdict for the same candidate is not
+   * overwritten. A rule reading the metadata absent from the record leaves the step alone, as an
+   * undecided candidate is left alone everywhere else.
    */
   private fun keptAsStep(
     status: PartialStatus,
     version: String,
-    index: Int,
-    ceilingIndex: Int,
     rules: List<Action<in ComponentSelection>>,
   ): Boolean {
-    if (index > ceilingIndex && !accepted(status, version)) {
+    if (!accepted(status, version)) {
       return false
     }
     if (rules.isEmpty()) {

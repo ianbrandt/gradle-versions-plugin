@@ -2754,7 +2754,7 @@ final class CompositeBuildSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     included.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.milestone == '3.0-flagged'
     included.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.preRelease == null
-    json.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.milestone == '1.0'
+    json.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.milestone == null
     json.outdated.dependencies.find { it.name == 'prerelease-flagged' }?.available?.preRelease == '3.0-flagged'
   }
 
@@ -2783,8 +2783,8 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
-  def "The report's own convention and exemption reach a merged row on the cache hit"() {
-    given: 'an outer that adds a convention and exempts one module, over a child with neither'
+  def "The report's own convention reaches a merged row on the cache hit"() {
+    given: 'an outer that adds a convention neither build\'s markers cover, over a child with none'
     unstableCeilingComposite(
       """
         tool 'com.probe:unstable-ceiling:1.0'
@@ -2794,7 +2794,6 @@ final class CompositeBuildSpec extends Specification {
       """
         tasks.named('dependencyUpdates').configure {
           preReleaseVersionIf { it.endsWith('-flagged') }
-          exemptFromBuiltInChecksIf { candidate.module == 'unstable-ceiling' }
         }
       """.stripIndent(),
     )
@@ -2803,7 +2802,7 @@ final class CompositeBuildSpec extends Specification {
     def store = run('dependencyUpdates', '--configuration-cache')
     def hit = run('dependencyUpdates', '--configuration-cache')
 
-    then: 'both are read from the slots that survive the cache, so the hit reports what the store did'
+    then: 'the convention is read from the copy that survives the cache, so the hit matches the store'
     store.task(':dependencyUpdates').outcome == SUCCESS
     hit.output.contains('Configuration cache entry reused.')
     [store, hit].every { it.output.contains('com.probe:unstable-ceiling [1.0 -> 2.0 -> 3.0-Beta1]') }

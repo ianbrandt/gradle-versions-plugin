@@ -18,7 +18,7 @@ class DependencyStatus {
   val contributed: Boolean
   val configurations: List<String>
 
-  /** The newest candidate the pre-release check left out, null when it left none out. */
+  /** The newest candidate left out by the pre-release check, null when none was left out. */
   val preReleaseVersion: String?
 
   @JvmOverloads

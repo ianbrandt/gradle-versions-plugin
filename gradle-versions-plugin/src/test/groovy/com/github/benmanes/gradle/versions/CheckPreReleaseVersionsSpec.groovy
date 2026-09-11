@@ -178,9 +178,9 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     when:
     def report = runReport()
 
-    then: 'no release is newer, so the step the resolution accepted is the version in use'
+    then: 'no release is newer, so only the pre-release step is reported'
     report.outdated.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies[0].available.milestone == '1.0'
+    report.outdated.dependencies[0].available.milestone == null
     report.outdated.dependencies[0].available.preRelease == '1.2-beta'
   }
 
@@ -276,7 +276,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then: 'the rule rejects 16.0 outright, and the built-in check reports 16.0-rc1 as the step'
     report.outdated.dependencies*.name == ['guava']
-    report.outdated.dependencies[0].available.milestone == '15.0'
+    report.outdated.dependencies[0].available.milestone == null
     report.outdated.dependencies[0].available.preRelease == '16.0-rc1'
   }
 
@@ -289,7 +289,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then:
     report.outdated.dependencies*.name == ['snapshot-mixed']
-    report.outdated.dependencies[0].available.integration == '1.5'
+    report.outdated.dependencies[0].available.integration == null
     report.outdated.dependencies[0].available.preRelease == '2.0-SNAPSHOT'
   }
 
@@ -312,7 +312,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
     result.output.contains('rejectPreReleases=false')
     report.outdated.dependencies*.name == ['prerelease-widget']
-    report.outdated.dependencies[0].available.integration == '1.0'
+    report.outdated.dependencies[0].available.integration == null
     report.outdated.dependencies[0].available.preRelease == '1.2-beta'
   }
 
@@ -690,7 +690,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then:
     report.outdated.dependencies*.name == ['prerelease-flagged']
-    report.outdated.dependencies[0].available.integration == '1.0'
+    report.outdated.dependencies[0].available.integration == null
     report.outdated.dependencies[0].available.preRelease == '3.0-flagged'
   }
 
@@ -757,7 +757,7 @@ final class CheckPreReleaseVersionsSpec extends Specification {
 
     then: 'the convention reached the subproject, so the flagged candidate is the second step'
     report.outdated.dependencies*.name == ['prerelease-flagged']
-    report.outdated.dependencies[0].available.milestone == '1.0'
+    report.outdated.dependencies[0].available.milestone == null
     report.outdated.dependencies[0].available.preRelease == '3.0-flagged'
   }
 

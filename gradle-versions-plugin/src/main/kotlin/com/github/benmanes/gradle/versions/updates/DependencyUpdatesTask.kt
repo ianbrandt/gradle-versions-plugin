@@ -105,15 +105,15 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
   private var gradleReleaseChannelSetting: String? = null
 
   /**
-   * Returns the release channels the Gradle row reports, `release-candidate` unless the build leaves
-   * [rejectPreReleases] on, which reports `current` alone. Stating the channel in the build, passing
-   * the option, or setting the system property is read ahead of that, so a build that leaves out
-   * every dependency's pre-release step and still wants the Gradle release candidate can say so.
+   * Returns which Gradle releases are printed: `release-candidate`, unless the build turns
+   * [rejectPreReleases] on, and then `current` alone. Stating this property in the build, passing the
+   * option, or setting the system property is read ahead of that, so a build that leaves out every
+   * dependency's pre-release step and still wants the Gradle release candidate can say so.
    *
-   * Derived rather than fixed so that one setting governs both rows. The Gradle row prints the
-   * release candidate after the newest release, the same breadcrumb every dependency row prints, and
-   * a report that leaves the second step out of every dependency row while printing it for Gradle
-   * states two opposite policies in one file.
+   * Derived rather than fixed so that one setting answers for both. The Gradle row is printed with
+   * the release candidate after the newest release, the same breadcrumb used for every dependency
+   * row, and a report with the second step left out of every dependency row while Gradle keeps it
+   * puts two opposite policies in one file.
    */
   @get:Input
   var gradleReleaseChannel: String

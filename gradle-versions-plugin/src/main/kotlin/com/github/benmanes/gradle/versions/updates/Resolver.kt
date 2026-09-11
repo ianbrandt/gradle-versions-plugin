@@ -90,9 +90,6 @@ class Resolver internal constructor(
    */
   private val isPreRelease: (String) -> Boolean = VersionStability.withConvention(preReleaseVersionIf)
 
-  /** Orders two versions newest first, for picking the newest of the rejected pre-releases. */
-  private val newestFirst = VersionMapping.versionComparator().reversed()
-
   /** Whether a candidate is exempt from the built-in checks; nothing is exempt unless configured. */
   private val isExempt: (ComponentSelectionWithCurrent) -> Boolean =
     if (exemptFromBuiltInChecksIf == null) {
@@ -575,11 +572,12 @@ class Resolver internal constructor(
    *
    * Registered last, after the bound and revision filters and after the build's own rules, which
    * is the opposite of what [addDeclaredBoundFilter] describes and is what makes the recorded
-   * version exact: a rejected candidate is not passed to the rules that follow, so a candidate
-   * reaching this filter is one every other filter accepted, and the first one rejected here is the
-   * newest that fails the pre-release check alone. The cost of the later position is the revision
-   * filter's metadata read on the pre-release candidates above the verdict, which is bounded by how
-   * many a repository lists there.
+   * version exact: a rejected candidate is not passed to the rules that follow, so a candidate that
+   * reaches this filter passed every other one, and the first rejection here is the newest version
+   * that fails the pre-release check alone. The cost of the later position is the revision filter's
+   * metadata read on the pre-release candidates above the verdict, bounded by how many of those a
+   * repository publishes. The build's own rules are now evaluated for those candidates, which the
+   * earlier position kept from them.
    *
    * The newest rejection is kept by the comparator rather than the first one reached. A module
    * found in more than one repository is walked newest-first per repository rather than newest-first
@@ -598,9 +596,13 @@ class Resolver internal constructor(
         rules.all(
           Action<ComponentSelectionWithCurrent> { current ->
             if (current.isPreRelease() && !isExempt(current)) {
-              val candidate = Coordinate.from(current.candidate)
-              preReleases.merge(candidate.key, candidate.version) { seen, found ->
-                if (newestFirst.compare(seen, found) <= 0) seen else found
+              val candidate = current.candidate
+              val key = Coordinate.Key(candidate.group, candidate.module)
+              preReleases.merge(key, candidate.version) { seen, found ->
+                // Built here rather than held on the resolver, which resolves the configurations of
+                // one project concurrently, and reached only where two candidates of one module
+                // compete rather than once per candidate.
+                if (VersionMapping.versionComparator().compare(seen, found) >= 0) seen else found
               }
               current.reject("Pre-release rejected by rejectPreReleases")
             }

@@ -57,8 +57,8 @@ data class PartialStatus
      */
     val onScriptClasspath: Boolean = false,
     /**
-     * The newest candidate the producer's pre-release check left out, null when it left none out.
-     * Trails for the same reason as [platformProjects].
+     * The newest candidate left out by the producer's pre-release check, null when none was left
+     * out. Trails for the same reason as [platformProjects].
      */
     val preReleaseVersion: String? = null,
   ) {
@@ -212,9 +212,14 @@ data class PartialResult
       /**
        * Bumped when the shape changes incompatibly; a field with a compatible default reads from an
        * older partial as that default. 2 records every candidate a dynamic query reaches rather
-       * than only the accepted one, plus the declared and platform-supplied constraints.
+       * than only the accepted one, plus the declared and platform-supplied constraints. 3 holds the
+       * newest release in `latestVersion` whatever `rejectPreReleases` is set to, with the newest
+       * pre-release beside it in `preReleaseVersion`, where 2 held whichever of the two that setting
+       * selected. The new field alone would read from a 2 as its default, but an older report
+       * reading a 3 would take `latestVersion` under the earlier meaning and drop the pre-release
+       * with nothing said, so the bump is what makes that combination fail instead.
        */
-      const val FORMAT_VERSION: Int = 2
+      const val FORMAT_VERSION: Int = 3
 
       private val adapter =
         Moshi.Builder()

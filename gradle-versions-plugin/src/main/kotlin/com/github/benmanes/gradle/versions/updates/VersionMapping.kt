@@ -18,9 +18,10 @@ class VersionMapping(private val logger: Logger, statuses: List<PartialStatus>) 
   val latestByCurrent = hashMapOf<Coordinate, Coordinate>()
 
   /**
-   * The newest candidate the pre-release check left out, per declared coordinate, absent where it
-   * left none out. Kept beside [latestByCurrent] rather than replacing its entry, so a row with
-   * both steps reports the newest the resolution accepted as well as the one it did not.
+   * The newest candidate left out by the pre-release check, per declared coordinate, absent where
+   * none was left out. Kept beside [latestByCurrent] rather than replacing its entry, so a row with
+   * both steps is reported with the newest version the resolution accepted as well as the one it
+   * did not.
    */
   val preReleaseByCurrent = hashMapOf<Coordinate, String>()
   private var comparator = makeVersionComparator()
