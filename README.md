@@ -2512,10 +2512,6 @@ the entries merged from an included build:
 >   Set `rejectPreReleases = true` to leave the pre-release step out altogether,
 >   or pass `--reject-pre-releases` for a single run (see [Filtering unstable
 >   versions](#filtering-unstable-versions)).
-> - `VersionAvailable` takes a fourth `preRelease` argument. Every constructor
->   arity the last release shipped is still callable, so Java and Groovy callers
->   are unaffected, but Kotlin code that constructs one with named or default
->   arguments has to be recompiled.
 
 > [!TIP]
 > - The `isNonStable` recipe formerly recommended here can be dropped, along with
@@ -2597,6 +2593,13 @@ the entries merged from an included build:
 >   rules shows a version no build resolved. The version a build accepts came
 >   through that build's full status-aware verdict, and a version below it did
 >   not.
+> - A fourth `preRelease` argument was added to `VersionAvailable`, and a
+>   further `constrainedBy` one to `Dependency`, `DependencyOutdated`,
+>   `DependencyLatest` and `DependencyUnresolved`. Every constructor arity and
+>   every `copy` the last release shipped is still callable, so Java and Groovy
+>   callers are unaffected. Kotlin code that constructs one of these while leaving an
+>   argument to its default has to be recompiled. A formatter that only reads
+>   the report, as the documented ones do, needs nothing.
 
 ### v0.60.0
 
