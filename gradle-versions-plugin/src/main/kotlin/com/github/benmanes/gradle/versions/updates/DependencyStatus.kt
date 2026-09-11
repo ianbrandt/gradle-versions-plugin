@@ -18,12 +18,17 @@ class DependencyStatus {
   val contributed: Boolean
   val configurations: List<String>
 
+  /** The newest candidate the pre-release check left out, null when it left none out. */
+  val preReleaseVersion: String?
+
+  @JvmOverloads
   constructor(
     coordinate: Coordinate,
     latestVersion: String,
     projectUrl: String?,
     contributed: Boolean = false,
     configurations: List<String> = emptyList(),
+    preReleaseVersion: String? = null,
   ) {
     this.coordinate = coordinate
     this.latestVersion = latestVersion
@@ -31,6 +36,7 @@ class DependencyStatus {
     this.unresolved = null
     this.contributed = contributed
     this.configurations = configurations
+    this.preReleaseVersion = preReleaseVersion
   }
 
   constructor(
@@ -45,6 +51,7 @@ class DependencyStatus {
     projectUrl = null
     this.contributed = contributed
     this.configurations = configurations
+    this.preReleaseVersion = null
   }
 
   fun getLatestCoordinate(): Coordinate {
@@ -91,6 +98,7 @@ class DependencyStatus {
       constraint = coordinate.versionConstraint?.toConstraintInfo(),
       platformConstraints = coordinate.platformVersionConstraints.map { it.toConstraintInfo() },
       onScriptClasspath = coordinate.onScriptClasspath,
+      preReleaseVersion = preReleaseVersion,
     )
   }
 

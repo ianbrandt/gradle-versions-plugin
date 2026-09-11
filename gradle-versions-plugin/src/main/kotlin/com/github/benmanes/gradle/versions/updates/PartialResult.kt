@@ -56,6 +56,11 @@ data class PartialStatus
      * https://github.com/ben-manes/gradle-versions-plugin/issues/755
      */
     val onScriptClasspath: Boolean = false,
+    /**
+     * The newest candidate the producer's pre-release check left out, null when it left none out.
+     * Trails for the same reason as [platformProjects].
+     */
+    val preReleaseVersion: String? = null,
   ) {
     val coordinate: Coordinate
       get() = Coordinate(group, name, declaredVersion, userReason, divergentLatest)
