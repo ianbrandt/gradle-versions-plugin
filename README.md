@@ -1487,7 +1487,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "23.0",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1499,7 +1500,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "7.0.0",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1511,7 +1513,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "4.2.3",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1523,7 +1526,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "1.40.0",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1535,7 +1539,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "6.3.1",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1547,7 +1552,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "4.1.0",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    }
   ]
