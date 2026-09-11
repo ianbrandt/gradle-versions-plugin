@@ -234,6 +234,38 @@ final class TaskOptionSpec extends Specification {
     'true'     | 'current'           | false
   }
 
+  def 'The negative release option restores the Gradle releases a build leaves out'() {
+    given: 'the build reports the release channel alone, which the option asks past'
+    declaringBuildFile("tasks.dependencyUpdates { rejectPreReleases = true }")
+
+    when: 'the api is unreachable, so an error is printed for each release channel consulted'
+    def result = run(
+      'dependencyUpdates',
+      '--no-reject-pre-releases',
+      '--gradle-versions-api-base-url', 'http://127.0.0.1:1/versions/')
+
+    then:
+    result.output.contains('Gradle release-candidate updates:')
+    result.output.contains('[release channel: release-candidate]')
+    result.task(':dependencyUpdates').outcome == SUCCESS
+  }
+
+  def 'The release channel system property is read ahead of the pre-release setting'() {
+    given:
+    declaringBuildFile("tasks.dependencyUpdates { rejectPreReleases = true }")
+
+    when: 'the api is unreachable, so an error is printed for each release channel consulted'
+    def result = run(
+      'dependencyUpdates',
+      '-DgradleReleaseChannel=nightly',
+      '--gradle-versions-api-base-url', 'http://127.0.0.1:1/versions/')
+
+    then:
+    result.output.contains('Gradle nightly updates:')
+    result.output.contains('[release channel: nightly]')
+    result.task(':dependencyUpdates').outcome == SUCCESS
+  }
+
   def 'A release channel stated in the build is read ahead of the pre-release setting'() {
     given:
     declaringBuildFile(
@@ -576,7 +608,7 @@ final class TaskOptionSpec extends Specification {
 
     then: 'the invoking build resolves against it and the included build keeps its own'
     !viaOption.output.contains('com.google.inject:guice [2.0 ->')
-    viaOption.output.contains('com.google.guava:guava [15.0 ->')
+    viaOption.output.contains('com.google.guava:guava [15.0 -> 16.0]')
 
     when: 'the same revision is given as a system property, which is set for the whole JVM'
     def viaSystemProperty = run('dependencyUpdates', '-Drevision=bogus')

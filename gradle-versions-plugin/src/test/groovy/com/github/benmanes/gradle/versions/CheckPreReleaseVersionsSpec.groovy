@@ -3,6 +3,7 @@ package com.github.benmanes.gradle.versions
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 import groovy.json.JsonSlurper
+import groovy.xml.XmlSlurper
 import org.gradle.testkit.runner.GradleRunner
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
@@ -136,6 +137,62 @@ final class CheckPreReleaseVersionsSpec extends Specification {
     report.outdated.dependencies*.name == ['stepped-widget']
     report.outdated.dependencies[0].available.milestone == '1.1'
     report.outdated.dependencies[0].available.preRelease == null
+  }
+
+  def 'the negative command line option restores the step a build leaves out'() {
+    given: 'the build leaves the step out, which the option asks for back'
+    writeBuildFile('com.example:stepped-widget:1.0', 'rejectPreReleases = true')
+
+    when:
+    def report = runReport(['--no-reject-pre-releases'])
+
+    then:
+    report.outdated.dependencies*.name == ['stepped-widget']
+    report.outdated.dependencies[0].available.milestone == '1.1'
+    report.outdated.dependencies[0].available.preRelease == '1.2-beta'
+  }
+
+  def 'the XML and JSON reports carry the step, and the HTML cell links both versions'() {
+    given:
+    writeBuildFile('com.example:stepped-widget:1.0', "outputFormatter = 'json,xml,html'")
+
+    when:
+    runUpdates()
+
+    then: 'the XML element trails the revision level the resolution filled'
+    def available = new XmlSlurper()
+      .parse(new File(reportFolder, 'report.xml'))
+      .outdated.dependencies.outdatedDependency[0].available
+    available.milestone.text() == '1.1'
+    available.preRelease.text() == '1.2-beta'
+    available.release.isEmpty()
+    available.integration.isEmpty()
+
+    and: 'the JSON field trails them too'
+    def json = new JsonSlurper()
+      .parseText(new File(reportFolder, 'report.json').text).outdated.dependencies[0]
+    json.available.milestone == '1.1'
+    json.available.preRelease == '1.2-beta'
+
+    and: 'each HTML version is linked on its own, so neither Sonatype url holds the pair'
+    def html = new File(reportFolder, 'report.html').text
+    html.contains('stepped-widget/1.1/bundle')
+    html.contains('stepped-widget/1.2-beta/bundle')
+    !html.contains('1.1 -&gt; 1.2-beta/bundle')
+    !html.contains('1.1 -> 1.2-beta/bundle')
+  }
+
+  def 'under the release revision the step trails the release the resolution accepted'() {
+    given:
+    writeBuildFile('com.example:stepped-widget:1.0', "revision = 'release'")
+
+    when:
+    def report = runReport()
+
+    then:
+    report.outdated.dependencies[0].available.release == '1.1'
+    report.outdated.dependencies[0].available.milestone == null
+    report.outdated.dependencies[0].available.preRelease == '1.2-beta'
   }
 
   def 'the plain text row prints both steps'() {

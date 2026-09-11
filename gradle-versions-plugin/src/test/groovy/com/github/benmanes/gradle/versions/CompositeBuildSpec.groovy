@@ -2733,6 +2733,51 @@ final class CompositeBuildSpec extends Specification {
   }
 
   @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "A merged row keeps the step its child recorded where the outer configures nothing"() {
+    given: 'neither build states a setting, so both are at the defaults'
+    unstableCeilingComposite()
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates', '-DoutputFormatter=plain,json')
+    def included = report('child/')
+    def json = report('')
+
+    then: 'both reports read alike, since nothing in the outer moves the row'
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '2.0'
+    included.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.preRelease ==
+      '3.0-Beta1'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.milestone == '2.0'
+    json.outdated.dependencies.find { it.name == 'unstable-ceiling' }?.available?.preRelease ==
+      '3.0-Beta1'
+    result.output.contains('com.probe:unstable-ceiling [1.0 -> 2.0 -> 3.0-Beta1]')
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
+  def "The report's revision leaves out a merged step its child resolved under another"() {
+    given: 'a child at the integration revision, over an outer at the default milestone'
+    unstableCeilingComposite(
+      "tool 'com.example:snapshot-mixed:1.5'",
+      "revision = 'integration'",
+      '',
+    )
+
+    when:
+    def result = run('dependencyUpdates', ':child:dependencyUpdates', '-DoutputFormatter=plain,json')
+    def included = report('child/')
+    def json = report('')
+
+    then: "the child reports the snapshot it resolved for"
+    result.task(':dependencyUpdates').outcome == SUCCESS
+    included.outdated.dependencies.find { it.name == 'snapshot-mixed' }?.available?.preRelease ==
+      '2.0-SNAPSHOT'
+
+    and: "the report it is merged into is not at a revision that accepts one"
+    json.outdated.dependencies.every { it.name != 'snapshot-mixed' }
+    json.current.dependencies.find { it.name == 'snapshot-mixed' }?.version == '1.5'
+  }
+
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/440')
   def "The report's preReleaseVersionIf convention moves a merged row to its step"() {
     given: "an outer with a convention neither build's markers cover, and a child with none"
     unstableCeilingComposite(
