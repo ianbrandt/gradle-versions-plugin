@@ -505,7 +505,8 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
     if (unaggregated.isNotEmpty()) {
       logger.warn(
         "Left out of the dependency updates report: ${unaggregated.joinToString(", ")}, " +
-          "which resolved to an external module rather than to a project. A build included only " +
+          "which no included build was substituted for. Check the coordinates against the group, " +
+          "name and version set in the included build. A build included only " +
           "under pluginManagement is not substituted from the including build's dependency graph, " +
           "so declare a plain includeBuild for these coordinates as well. An includeBuild that " +
           "declares a dependencySubstitution block keeps only the rules declared in it, so declare " +

@@ -2127,16 +2127,17 @@ dependencies {
 
 </details>
 
-Whether a coordinate is substituted at all rests on two Gradle rules. A build
-included only under `pluginManagement` is not substituted from the including
-build's dependency graph, so declare a plain `includeBuild` for it in the
-aggregating settings as well. An `includeBuild` that declares a
-`dependencySubstitution` block keeps only the rules declared in it, the
-automatic `group:name` rule included, so a rule for the aggregated coordinates
-has to be declared there too. A coordinate substituted onto no project stays an
-external module and none of its entries are merged; it is printed in a warning
-rather than failing the build, so an entry left over from a build that is no
-longer included does not break the build.
+Whether a coordinate is substituted at all rests on its spelling and on two
+Gradle rules. The coordinates have to match the `group`, `name` and `version`
+set in the included build. A build included only under `pluginManagement` is
+not substituted from the including build's dependency graph, so declare a plain
+`includeBuild` for it in the aggregating settings as well. An `includeBuild`
+that declares a `dependencySubstitution` block keeps only the rules declared in
+it, the automatic `group:name` rule included, so a rule for the aggregated
+coordinates has to be declared there too. A coordinate substituted onto no
+project is left out of the report and none of its entries are merged; it is
+printed in a warning rather than failing the build, so an entry left over from
+a build that is no longer included does not break the build.
 
 The task that writes the report applies its settings to every entry in it,
 including the entries an included build resolved and the entries its subprojects
