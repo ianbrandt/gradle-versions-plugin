@@ -213,6 +213,64 @@ final class TaskOptionSpec extends Specification {
     result.task(':dependencyUpdates').outcome == SUCCESS
   }
 
+  @Unroll
+  def 'Reports the Gradle releases of #expected when rejectPreReleases is #configured'() {
+    given: 'nothing states a release channel, so it follows the pre-release setting'
+    declaringBuildFile("tasks.dependencyUpdates { rejectPreReleases = $configured }")
+
+    when: 'the api is unreachable, so an error is printed for each release channel consulted'
+    def result = run(
+      'dependencyUpdates',
+      '--gradle-versions-api-base-url', 'http://127.0.0.1:1/versions/')
+
+    then:
+    result.output.contains("Gradle $expected updates:")
+    result.output.contains('[release channel: release-candidate]') == candidateConsulted
+    result.task(':dependencyUpdates').outcome == SUCCESS
+
+    where:
+    configured | expected            | candidateConsulted
+    'false'    | 'release-candidate' | true
+    'true'     | 'current'           | false
+  }
+
+  def 'A release channel stated in the build is read ahead of the pre-release setting'() {
+    given:
+    declaringBuildFile(
+      '''
+        tasks.dependencyUpdates {
+          rejectPreReleases = true
+          gradleReleaseChannel = 'nightly'
+        }
+      ''')
+
+    when:
+    def result = run(
+      'dependencyUpdates',
+      '--gradle-versions-api-base-url', 'http://127.0.0.1:1/versions/')
+
+    then:
+    result.output.contains('Gradle nightly updates:')
+    result.output.contains('[release channel: nightly]')
+    result.task(':dependencyUpdates').outcome == SUCCESS
+  }
+
+  def 'The release channel option is read ahead of the pre-release setting'() {
+    given:
+    declaringBuildFile("tasks.dependencyUpdates { rejectPreReleases = true }")
+
+    when:
+    def result = run(
+      'dependencyUpdates',
+      '--gradle-release-channel', 'release-candidate',
+      '--gradle-versions-api-base-url', 'http://127.0.0.1:1/versions/')
+
+    then:
+    result.output.contains('Gradle release-candidate updates:')
+    result.output.contains('[release channel: release-candidate]')
+    result.task(':dependencyUpdates').outcome == SUCCESS
+  }
+
   def 'Writes the report to the directory given on the command line, ahead of the system property'() {
     given:
     declaringBuildFile()

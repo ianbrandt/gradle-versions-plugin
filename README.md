@@ -330,7 +330,7 @@ command line option, since no command line can express the logic.
 | Property | Values | Default | Option |
 | --- | --- | --- | --- |
 | [`revision`](#revisions) | `release`, `milestone`, `integration` | `milestone` | `--revision` |
-| [`gradleReleaseChannel`](#gradle-release-channel) | `current`, `release-candidate`, `nightly` | `release-candidate` | `--gradle-release-channel` |
+| [`gradleReleaseChannel`](#gradle-release-channel) | `current`, `release-candidate`, `nightly` | `release-candidate`, or `current` under `rejectPreReleases` | `--gradle-release-channel` |
 | [`checkForGradleUpdate`](#checkforgradleupdate) | `true`, `false` | `true` | `--[no-]check-for-gradle-update` |
 | [`checkConstraints`](#constraints) | `true`, `false` | `false` | `--[no-]check-constraints` |
 | [`checkBuildEnvironmentConstraints`](#constraints) | `true`, `false` | `false` | `--[no-]check-build-environment-constraints` |
@@ -723,10 +723,11 @@ The following dependencies have later milestone versions:
  - com.google.guava:guava [15.0 -> 16.0-rc1]
 ```
 
-The Gradle row is printed the same way, and `gradleReleaseChannel` defaults to
-`release-candidate` for the same reason. Setting `rejectPreReleases` to `true`
-leaves the pre-release step out, so the first row above reads `[2.4.0 ->
-2.4.10]` and the second is reported as up to date.
+The Gradle row is printed the same way, and `rejectPreReleases` governs it
+through [`gradleReleaseChannel`](#gradle-release-channel)'s default. Setting
+`rejectPreReleases` to `true` leaves the pre-release step out, so the first row
+above reads `[2.4.0 -> 2.4.10]`, the second is reported as up to date, and the
+Gradle row reports `current` alone.
 
 The pre-release step is the newest candidate that fails the pre-release check
 alone: the bound check, the revision and any `rejectVersionIf` filter are
@@ -1241,7 +1242,14 @@ Gradle project is used to check for available Gradle updates. Options are:
 * `release-candidate`
 * `nightly`
 
-The default is `release-candidate`. The value can be changed as shown below:
+The default follows [`rejectPreReleases`](#filtering-unstable-versions), so one
+setting answers for the Gradle row and the dependency rows alike: with the
+pre-release step printed, which it is by default, the default here is
+`release-candidate`, and a build that sets `rejectPreReleases = true` reports
+`current` alone. Stating the property, passing the option, or setting the system
+property is read ahead of that, so a build that leaves out every dependency's
+pre-release step and still wants the Gradle release candidate can say so. The
+value can be changed as shown below:
 
 <details open>
 <summary>Kotlin</summary>
@@ -2488,6 +2496,14 @@ the entries merged from an included build:
 >   arity the last release shipped is still callable, so Java and Groovy callers
 >   are unaffected, but Kotlin code that constructs one with named or default
 >   arguments has to be recompiled.
+
+> [!NOTE]
+> - `gradleReleaseChannel` now takes its default from `rejectPreReleases`, so a
+>   build that leaves out every dependency's pre-release step no longer reports
+>   the Gradle release candidate. The default is unchanged at
+>   `release-candidate` for a build that leaves `rejectPreReleases` alone, and
+>   stating the property or passing the option is still read ahead of it (see
+>   [Gradle release channel](#gradle-release-channel)).
 > - A candidate outside a `strictly` or `reject` bound written in the build,
 >   outside a dynamic version declared on the buildscript classpath, or outside
 >   the version fixed by a consumed platform, is left out of the report, where
