@@ -492,6 +492,20 @@ open class DependencyUpdatesTask : DefaultTask() { // tasks can't be final
       partialResults.files
         .map { PartialResult.fromJson(it.readText()) }
         .sortedBy { it.projectPath }
+    // An older partial is read for the fields written in it, and its latest version is taken as
+    // the newest release. Before the pre-release step, the newest accepted candidate was written
+    // there instead, which can be a pre-release, so such a row is printed as a release rather than
+    // as the step after one. Warned about rather than left silent, since nothing else in the
+    // report distinguishes the row.
+    val olderPartials = partials.filter { it.formatVersion < PartialResult.FORMAT_VERSION }
+    if (olderPartials.isNotEmpty()) {
+      logger.warn(
+        "A partial result written by an older version of the plugin was read for " +
+          "${olderPartials.map { it.projectPath }.sorted().joinToString(", ")}. A pre-release is " +
+          "reported there as the version to upgrade to rather than as the step after the newest " +
+          "release. Apply one version of the plugin across every project and included build.",
+      )
+    }
     val missing = aggregatedProjectPaths - partials.map { it.projectPath }.toSet()
     if (missing.isNotEmpty()) {
       logger.warn(

@@ -139,8 +139,11 @@ ComponentSelectionWithCurrent{
 /**
  * Reads a declared selector with the parser dependency resolution itself uses, as Gradle publishes
  * no API for it; https://github.com/gradle/gradle/issues/13748 asks for one and remains open, and
- * its own worked example is this. A release that moves the parser leaves the bound unknown rather
- * than failing the report, which is why the linkage failure is caught instead of thrown.
+ * its own worked example is this. A release that moves the parser, or a selector text it rejects
+ * where Gradle itself accepted the declaration, leaves the bound unknown rather than failing the
+ * report, which is why both the linkage failure and the throw are caught instead of thrown. The
+ * built-in bound filter reads this for every candidate, so a throw that reached it would report the
+ * whole configuration as skipped.
  */
 private object DeclaredBound {
   // One parser for the scheme and the comparator, since each keeps a cache of every version
@@ -215,6 +218,8 @@ private object DeclaredBound {
       } else {
         constraint.rejectedVersions.none { selector(parser, it).accept(version) }
       }
+    } catch (e: Exception) {
+      true
     } catch (e: LinkageError) {
       true
     }
@@ -280,6 +285,8 @@ private object DeclaredBound {
     }
     return try {
       constraints.all { admits(it, candidate) }
+    } catch (e: Exception) {
+      true
     } catch (e: LinkageError) {
       true
     }
@@ -321,6 +328,8 @@ private object DeclaredBound {
           ) ||
             platformConstraints.any { admits(it, currentVersion) && !admits(it, candidate) }
         )
+    } catch (e: Exception) {
+      false
     } catch (e: LinkageError) {
       false
     }

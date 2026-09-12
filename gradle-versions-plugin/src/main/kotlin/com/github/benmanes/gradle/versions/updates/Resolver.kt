@@ -100,6 +100,11 @@ class Resolver internal constructor(
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
 
+  // One comparator for the resolver, where the configurations of a project resolve concurrently:
+  // the parser behind it caches every version string it reads in a ConcurrentHashMap, so it is
+  // shared rather than rebuilt, as the declared bound's own parser is.
+  private val versionComparator = VersionMapping.versionComparator()
+
   // Every candidate a dynamic query's component-selection walk reached, as `group:name:version`,
   // deduped in the order they arrived. Selections run concurrently, so both the set and each drain
   // of it are synchronized.
@@ -355,6 +360,11 @@ class Resolver internal constructor(
     }
     copy.dependencies.addAll(queryDependencies(configuration, current))
     copy.resolutionStrategy.deactivateDependencyLocking()
+
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
+    // As for the copy that resolves the latest versions: the candidates walked here are the newer
+    // versions being searched for, so none of them can be in the build's verification metadata.
+    copy.resolutionStrategy.disableDependencyVerification()
     recordCandidates(copy)
     copy.incoming.resolutionResult.root
   }
@@ -521,11 +531,9 @@ class Resolver internal constructor(
             selection.reject("Component status ${metadata?.status} rejected by revision $revision")
           }
         }
-        rules.all { selectionAction ->
-          if (ComponentSelection::class.members.any { it.name == "getMetadata" }) {
-            revisionFilter(selectionAction)
-          }
-        }
+        // Every supported Gradle publishes ComponentSelection.getMetadata, which the guard here
+        // reflected over the type's whole member list once per candidate to establish.
+        rules.all { selectionAction -> revisionFilter(selectionAction) }
       }
     }
   }
@@ -599,10 +607,7 @@ class Resolver internal constructor(
               val candidate = current.candidate
               val key = Coordinate.Key(candidate.group, candidate.module)
               preReleases.merge(key, candidate.version) { seen, found ->
-                // Built here rather than held on the resolver, which resolves the configurations of
-                // one project concurrently, and reached only where two candidates of one module
-                // compete rather than once per candidate.
-                if (VersionMapping.versionComparator().compare(seen, found) >= 0) seen else found
+                if (versionComparator.compare(seen, found) >= 0) seen else found
               }
               current.reject("Pre-release rejected by rejectPreReleases")
             }

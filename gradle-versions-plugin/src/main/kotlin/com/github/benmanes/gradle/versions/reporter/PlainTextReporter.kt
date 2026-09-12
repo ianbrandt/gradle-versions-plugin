@@ -34,6 +34,10 @@ class PlainTextReporter
       gradleReleaseChannel: String,
     ) : this(project.path, revision, gradleReleaseChannel)
 
+    // One comparator for the report, rather than one per row: the parser behind it caches every
+    // version string it reads, for the life of the report.
+    private val versionComparator = VersionMapping.versionComparator()
+
     /** Writes the report to the print stream. The stream is not automatically closed. */
     override fun write(
       printStream: OutputStream,
@@ -122,11 +126,10 @@ class PlainTextReporter
      */
     private fun breadcrumb(dependency: DependencyOutdated): String {
       val steps = listOfNotNull(dependency.version, dependency.available[revision], dependency.available.preRelease)
-      val newestFirst = VersionMapping.versionComparator()
       val printed = mutableListOf<String>()
       for (step in steps) {
         if (step.isEmpty()) continue
-        if (printed.isEmpty() || newestFirst.compare(printed.last(), step) < 0) {
+        if (printed.isEmpty() || versionComparator.compare(printed.last(), step) < 0) {
           printed.add(step)
         }
       }
