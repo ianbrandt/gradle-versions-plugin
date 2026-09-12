@@ -81,6 +81,38 @@ class DependencyUpdatesReporter(
   /** The pre-release step of each row, absent where the pre-release check left nothing out. */
   val preReleaseByCurrent: Map<Coordinate, String> = emptyMap(),
 ) {
+  @Deprecated("Use the constructor that includes the constraining platforms.")
+  constructor(
+    projectPath: String,
+    logger: Logger,
+    revision: String,
+    outputFormatterArgument: OutputFormatterArgument,
+    outputDirectory: File,
+    reportfileName: String?,
+    currentVersions: Map<Map<String, String>, Coordinate>,
+    latestVersions: Map<Map<String, String>, Coordinate>,
+    upToDateVersions: Map<Map<String, String>, Coordinate>,
+    downgradeVersions: Map<Map<String, String>, Coordinate>,
+    upgradeVersions: Map<Map<String, String>, Coordinate>,
+    undeclared: Set<Coordinate>,
+    unresolved: Set<UnresolvedInfo>,
+    projectUrls: Map<Map<String, String>, String>,
+    gradleUpdateChecker: GradleUpdateChecker,
+    gradleReleaseChannel: String,
+    latestByCurrent: Map<Coordinate, Coordinate> = emptyMap(),
+    projectsByCoordinate: Map<Coordinate, List<String>> = emptyMap(),
+    contributedCoordinates: Set<Coordinate> = emptySet(),
+    configurationsByCoordinate: Map<Coordinate, List<String>> = emptyMap(),
+    skipped: List<SkippedConfiguration> = emptyList(),
+    platformProjectsByCoordinate: Map<Coordinate, List<String>> = emptyMap(),
+  ) : this(
+    projectPath, logger, revision, outputFormatterArgument, outputDirectory, reportfileName,
+    currentVersions, latestVersions, upToDateVersions, downgradeVersions, upgradeVersions,
+    undeclared, unresolved, projectUrls, gradleUpdateChecker, gradleReleaseChannel,
+    latestByCurrent, projectsByCoordinate, contributedCoordinates, configurationsByCoordinate,
+    skipped, platformProjectsByCoordinate, emptyMap(), emptyMap(),
+  )
+
   @Deprecated("Use the constructor that includes the skipped configurations.")
   constructor(
     projectPath: String,
@@ -108,7 +140,7 @@ class DependencyUpdatesReporter(
     currentVersions, latestVersions, upToDateVersions, downgradeVersions, upgradeVersions,
     undeclared, unresolved, projectUrls, gradleUpdateChecker, gradleReleaseChannel,
     latestByCurrent, projectsByCoordinate, contributedCoordinates, configurationsByCoordinate,
-    emptyList(),
+    emptyList(), emptyMap(), emptyMap(), emptyMap(),
   )
 
   @Synchronized

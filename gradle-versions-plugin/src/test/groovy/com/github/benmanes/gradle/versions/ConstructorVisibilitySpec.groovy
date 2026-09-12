@@ -48,4 +48,9 @@ final class ConstructorVisibilitySpec extends Specification {
     DependencyUpdatesReporter.declaredConstructors.any { it.parameterCount == 20 }
     PartialResult.declaredMethods.any { it.name == 'copy' && it.parameterCount == 4 }
   }
+
+  def 'The reporter arity v0.61.0 shipped is still callable'() {
+    expect:
+    DependencyUpdatesReporter.declaredConstructors.any { it.parameterCount == 22 }
+  }
 }
