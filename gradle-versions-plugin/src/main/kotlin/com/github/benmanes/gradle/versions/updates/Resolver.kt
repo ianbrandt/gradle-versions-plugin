@@ -355,6 +355,11 @@ class Resolver internal constructor(
     }
     copy.dependencies.addAll(queryDependencies(configuration, current))
     copy.resolutionStrategy.deactivateDependencyLocking()
+
+    // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
+    // As for the copy that resolves the latest versions: the candidates walked here are the newer
+    // versions being searched for, so none of them can be in the build's verification metadata.
+    copy.resolutionStrategy.disableDependencyVerification()
     recordCandidates(copy)
     copy.incoming.resolutionResult.root
   }
