@@ -2492,66 +2492,69 @@ and *Note*s are things worth knowing that need no action.
 
 ### v0.61.0
 
-In the next release, a pre-release candidate is reported as a step after the
-newest release rather than in place of it, the report is held to the bounds
-written in the build without a rule written for it, a coordinate with one
-declared version and different latest versions across the aggregated projects
-is shown on one entry per latest version, where the entries were merged into
-the newest of them before, an aggregating report applies its settings to the
-entries merged from an included build, and the platform behind a constrained
-module's version is shown on that module's own entry:
+In the next release, a pre-release candidate is printed as a step after the
+newest release rather than in place of it, the report is restricted to the
+bounds written in the build without a rule to apply them, a coordinate with
+one declared version and different latest versions across the aggregated
+projects is printed on one entry per latest version, where the entries were
+merged into the newest of them before, the settings configured on an
+aggregating task are applied to the entries merged from an included build, and
+the platform behind a constrained module's version is printed on the entry for
+that module:
 
 > [!IMPORTANT]
 > - A row's `available` version is now the newest release, and a newer
->   pre-release is carried beside it in `available.preRelease`, where the
->   pre-release was the `available` version before. A plain text row prints both,
->   as `[2.4.0 -> 2.4.10 -> 2.4.20-beta1]`. Reading `available.release`,
->   `available.milestone` or `available.integration` yields the newest release
->   rather than the pre-release, and yields null where the only newer candidate
->   is a pre-release, since no newer release was found. A tool that prints one
->   version for the row falls back to `available.preRelease` after those three.
->   Set `rejectPreReleases = true` to leave the pre-release step out altogether,
->   or pass `--reject-pre-releases` for a single run (see [Filtering unstable
+>   pre-release is printed beside it in `available.preRelease`, where the
+>   pre-release was the `available` version before. Both are printed in a
+>   plain text row, as `[2.4.0 -> 2.4.10 -> 2.4.20-beta1]`. Reading
+>   `available.release`, `available.milestone` or `available.integration`
+>   yields the newest release rather than the pre-release, and null where the
+>   only newer candidate is a pre-release, since no newer release was found. A
+>   tool that prints one version for the row falls back to
+>   `available.preRelease` after those three. Set `rejectPreReleases = true`
+>   to leave the pre-release step out altogether, or pass
+>   `--reject-pre-releases` for a single run (see [Filtering unstable
 >   versions](#filtering-unstable-versions)).
-> - An attribution line reading `constrained by the platform :platform` can now
->   be printed under an entry, showing the platform project or BOM behind the
->   version. It does not depend on `checkConstraints`, and it is printed under
->   an up to date entry as well as an outdated one, so a tool that parses the
->   plain text report line by line has to skip it, as it already does for the
->   other attribution lines (see [Report format](#report-format)). The same
->   names appear in the JSON and XML reports, in `constrainedBy` (see
->   [Constraints](#constraints)).
+> - An attribution line reading `constrained by the platform :platform`, with
+>   the platform project or BOM behind the version, can now be printed under
+>   an entry. It does not depend on `checkConstraints`, and it is printed
+>   under an up to date entry as well as an outdated one, so a tool that
+>   parses the plain text report line by line has to skip it, as it already
+>   does for the other attribution lines (see [Report
+>   format](#report-format)). The same names are printed in the JSON and XML
+>   reports, in `constrainedBy` (see [Constraints](#constraints)).
 
 > [!TIP]
-> - The `isNonStable` recipe formerly recommended here can be dropped, along with
->   the `rejectVersionIf` clause that called it. The built-in check matches
->   pre-release markers rather than a stable pattern, so a qualifier not in its
->   list, such as `13.4.0.jre11`, stays in the report. A convention not in the
->   marker list, such as graphql-java's `-nf-` builds, is added to the check
->   with `preReleaseVersionIf`, so the property and its option govern it too,
->   and it is off wherever the property is.
+> - The `isNonStable` recipe formerly recommended here can be dropped, along
+>   with the `rejectVersionIf` clause that called it. The built-in check
+>   matches pre-release markers rather than a stable pattern, so a qualifier
+>   not in its list, such as `13.4.0.jre11`, stays in the report. A convention
+>   not in the marker list, such as graphql-java's `-nf-` builds, is added to
+>   the check with `preReleaseVersionIf`, so the property and its option apply
+>   to it too, and it is off wherever the property is off.
 > - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
->   bound is now applied by `rejectOutOfBounds`. A build that needs an exception
->   for a module it bounds exempts it with `exemptFromBuiltInChecksIf` (see
->   [Filtering unstable versions](#filtering-unstable-versions)). The member is
->   deprecated and will be removed in a later release; a warning is printed once
->   per project when a rule reads it, and a Kotlin DSL build that treats
->   compiler warnings as errors has to drop the clause before upgrading. With
->   the clause still in a rule, the same candidates are rejected under
->   `--no-reject-out-of-bounds` as without it.
+>   bound is now applied by `rejectOutOfBounds`. A module that needs an
+>   exception from a bound is exempted with `exemptFromBuiltInChecksIf` (see
+>   [Filtering unstable versions](#filtering-unstable-versions)). The member
+>   is deprecated and will be removed in a later release; a warning is printed
+>   once per project where a rule still reads `satisfiesDeclaredBound`, so the
+>   clause has to be dropped before upgrading a Kotlin DSL build configured to
+>   treat compiler warnings as errors. With the clause still in a rule, the
+>   same candidates are rejected under `--no-reject-out-of-bounds` as without
+>   it.
 
 > [!NOTE]
-> - A `rejectVersionIf` filter is now applied to a pre-release candidate before
->   the built-in check leaves it out, where the built-in check ran first and the
->   filter never saw one. A filter with a side effect runs it for those
->   candidates too (see [Filtering unstable
+> - A `rejectVersionIf` filter is now applied to a pre-release candidate
+>   before the built-in check leaves it out, where the built-in check ran
+>   first and no pre-release candidate reached the filter. A filter with a
+>   side effect now runs for those candidates too (see [Filtering unstable
 >   versions](#filtering-unstable-versions)).
-> - `gradleReleaseChannel` now takes its default from `rejectPreReleases`, so a
->   build that leaves out every dependency's pre-release step no longer reports
->   the Gradle release candidate. The default is unchanged at
->   `release-candidate` for a build that leaves `rejectPreReleases` alone, and
->   stating the property or passing the option is still read ahead of it (see
->   [Gradle release channel](#gradle-release-channel)).
+> - `gradleReleaseChannel`'s default is now read from `rejectPreReleases`, so
+>   the Gradle release candidate is no longer reported in a build where every
+>   dependency's pre-release step is left out. The default is unchanged at
+>   `release-candidate` where `rejectPreReleases` is left alone, and stating
+>   the property or passing the option is still read ahead of it (see [Gradle
+>   release channel](#gradle-release-channel)).
 > - A candidate outside a `strictly` or `reject` bound written in the build,
 >   outside a dynamic version declared on the buildscript classpath, or outside
 >   the version fixed by a consumed platform, is left out of the report, where
@@ -2561,20 +2564,24 @@ module's version is shown on that module's own entry:
 > - A coordinate's group and name can now appear on two entries of one report,
 >   and in two of its sections. The projects for each entry are included in
 >   `projects` (see [Multi-project builds](#multi-project-builds)), which is
->   what distinguishes them. A tool that keys the entries by group and name
+>   what distinguishes the entries. A tool that keys them by group and name
 >   alone has to key them by the projects as well.
-> - A `dependencyUpdatesAggregation` entry now merges every project of the build
->   it declares, where only the project its coordinates resolved to was merged
->   before. A composite that declared every project of an included build can
->   declare the build alone (see [Composite builds](#composite-builds)).
-> - The aggregating report's `rejectVersionIf`, `resolutionStrategy`,
->   `rejectPreReleases`, `preReleaseVersionIf`, `exemptFromBuiltInChecksIf`
->   and `filterDeclaredConfigurations` are applied to every entry in it, both the
->   ones an included build resolved and the ones its subprojects resolved. An
->   entry can show an older version, or not appear at all, where the included
->   build's or the subproject's own settings settled it before. Where the project
->   the report is asked for rejects a version a subproject accepts, two entries
->   that a per-project rule would have split apart are shown as one.
+> - Every project of the build declared in a `dependencyUpdatesAggregation`
+>   entry is now merged, where only the project the coordinates resolved to
+>   was merged before. In a composite where every project of an included build
+>   was declared, the build alone can be declared now (see [Composite
+>   builds](#composite-builds)).
+> - The `rejectVersionIf`, `resolutionStrategy`, `rejectPreReleases`,
+>   `preReleaseVersionIf`, `exemptFromBuiltInChecksIf` and
+>   `filterDeclaredConfigurations` configured on the aggregating task are
+>   applied to every entry in the report, both the ones resolved in an
+>   included build and the ones resolved in its subprojects. Before, the
+>   version printed for a merged entry came from the settings configured in
+>   the included build or the subproject. Now an older version can be printed
+>   on such an entry, and an entry can be left out entirely. Where a version
+>   accepted in a subproject is rejected for the project the report is asked
+>   for, two entries a per-project rule would have split apart are printed as
+>   one.
 > - The configuration cache entry is discarded for a report that merges an
 >   included build's entries, where a Kotlin rule calls a function declared in
 >   the same build script. Move the function into a compiled class, in `buildSrc`
@@ -2584,24 +2591,24 @@ module's version is shown on that module's own entry:
 > - A module with only pre-releases published, and the declared version no
 >   longer among them, is reported as unresolved rather than as up to date,
 >   since every candidate is rejected.
-> - The presence of a version catalog no longer changes whether a plugin
->   versioned inline as a range in the `plugins` block is offered an upgrade
->   past that range. The upgrade was withheld when an unused alias for the same plugin was
->   present in the catalog and offered when it was not (see [Respecting declared
->   bounds](#respecting-declared-bounds)).
-> - A module that a platform bounds in one project and not in another is now up
->   to date in the bounded project and outdated in the other, rather than
->   outdated in both. The merged entry printed an upgrade that is not available
->   in the bounded project.
-> - A split entry can include an attribution line that the merged one left out.
->   The line is left out when a project outside the platform's importers
->   declares the module. Once the entries are split, that project is on an entry
->   of its own, so the line is printed again (see [Report
+> - For a plugin versioned inline as a range in the `plugins` block, the
+>   presence of a version catalog no longer changes whether an upgrade past
+>   that range is printed. The upgrade was left out when an unused alias for
+>   the same plugin was present in the catalog, and printed when it was not
+>   (see [Respecting declared bounds](#respecting-declared-bounds)).
+> - A module that a platform bounds in one project and not in another is now
+>   up to date in the bounded project and outdated in the other, rather than
+>   outdated in both. An upgrade not available in the bounded project was
+>   printed on the merged entry.
+> - A split entry can include an attribution line left out of the merged one.
+>   The line is left out where the module is declared in a project outside the
+>   platform's importers. Once the entries are split, that project appears on
+>   an entry of its own, so the line is printed again (see [Report
 >   format](#report-format)).
-> - An entry the report moved to an older version under the aggregating build's
->   rules shows a version no build resolved. The version a build accepts came
->   through that build's full status-aware verdict, and a version below it did
->   not.
+> - A version resolved in no build is printed on an entry moved to an older
+>   version by the aggregating build's rules. A version accepted in a build
+>   came through the full status-aware resolution there, and a version below
+>   it did not.
 > - A fourth `preRelease` argument was added to `VersionAvailable`, and a
 >   further `constrainedBy` one to `Dependency`, `DependencyOutdated`,
 >   `DependencyLatest` and `DependencyUnresolved`. Every constructor arity and
