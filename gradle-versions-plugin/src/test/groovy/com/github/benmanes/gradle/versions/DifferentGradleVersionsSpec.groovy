@@ -279,6 +279,45 @@ final class DifferentGradleVersionsSpec extends Specification {
     GradleVersions.CURRENT | true
   }
 
+  @Issue('https://github.com/ben-manes/gradle-versions-plugin/issues/1095')
+  def 'dependencyUpdates task leaves the verification opt out alone where the build has no metadata'() {
+    given: 'a build with no verification metadata, which verifies nothing'
+    buildFile = testProjectDir.newFile('build.gradle')
+    buildFile <<
+      """
+        buildscript {
+          dependencies {
+            classpath files($classpathString)
+          }
+        }
+
+        apply plugin: 'java'
+        apply plugin: "io.github.ben-manes.versions"
+
+        repositories {
+          maven {
+            url '${mavenRepoUrl}'
+          }
+        }
+
+        dependencies {
+          implementation 'com.google.inject:guice:3.0'
+        }
+        """.stripIndent()
+
+    when: 'the oldest release that needs the exemption runs it, so every JVM leg covers this'
+    def result = GradleRunner.create()
+      .withGradleVersion('8.14.4')
+      .withProjectDir(testProjectDir.root)
+      .withArguments('dependencyUpdates')
+      .build()
+
+    then: 'Gradle prints its opt out line for every configuration that opts out, so none opts out'
+    result.output.contains('com.google.inject:guice [3.0 -> 3.1]')
+    !result.output.contains('Dependency verification has been disabled')
+    result.task(':dependencyUpdates').outcome == SUCCESS
+  }
+
   def 'dependencyUpdates task completes without errors if configuration cache is enabled'() {
     given:
     buildFile = testProjectDir.newFile('build.gradle')

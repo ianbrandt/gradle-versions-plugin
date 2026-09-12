@@ -98,6 +98,14 @@ class Resolver internal constructor(
       { current -> exemptFromBuiltInChecksIf.reject(current) }
     }
 
+  // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
+  // Gradle prints a line at the default log level for every configuration that opts out of
+  // dependency verification, so a build that verifies nothing would be told hundreds of times
+  // about an opt out it has no use for. Verification runs from the metadata file alone, so where
+  // that file is absent no lookup can fail one.
+  private val verifiesDependencies: Boolean =
+    project.rootDir.resolve("gradle/verification-metadata.xml").exists()
+
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
 
   // One comparator for the resolver, where the configurations of a project resolve concurrently:
@@ -118,6 +126,13 @@ class Resolver internal constructor(
 
   init {
     logRepositories()
+  }
+
+  /** Exempts a lookup from dependency verification, in a build that verifies at all. */
+  private fun exemptFromDependencyVerification(copy: Configuration) {
+    if (verifiesDependencies) {
+      copy.resolutionStrategy.disableDependencyVerification()
+    }
   }
 
   /** Returns the declared dependency keys of the configuration, before lazy actions contribute. */
@@ -283,7 +298,7 @@ class Resolver internal constructor(
     // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
     // The candidate versions cannot be in the build's verification metadata, as they are the newer
     // versions being searched for.
-    copy.resolutionStrategy.disableDependencyVerification()
+    exemptFromDependencyVerification(copy)
 
     addDeclaredBoundFilter(copy, current.coordinates)
     addRevisionFilter(copy, revision, current.coordinates)
@@ -364,7 +379,7 @@ class Resolver internal constructor(
     // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
     // As for the copy that resolves the latest versions: the candidates walked here are the newer
     // versions being searched for, so none of them can be in the build's verification metadata.
-    copy.resolutionStrategy.disableDependencyVerification()
+    exemptFromDependencyVerification(copy)
     recordCandidates(copy)
     copy.incoming.resolutionResult.root
   }
@@ -670,7 +685,7 @@ class Resolver internal constructor(
     copy.resolutionStrategy.deactivateDependencyLocking()
 
     // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
-    copy.resolutionStrategy.disableDependencyVerification()
+    exemptFromDependencyVerification(copy)
 
     disableAutoTargetJvm(copy)
     val root = copy.incoming.resolutionResult.root
@@ -816,7 +831,7 @@ class Resolver internal constructor(
     copy.resolutionStrategy.deactivateDependencyLocking()
 
     // https://github.com/ben-manes/gradle-versions-plugin/issues/1095
-    copy.resolutionStrategy.disableDependencyVerification()
+    exemptFromDependencyVerification(copy)
     disableAutoTargetJvm(copy)
     copy.dependencies.clear()
     // Copied rather than shared, as copyRecursive does for the set cleared above: a withDependencies
@@ -1082,7 +1097,7 @@ class Resolver internal constructor(
             }
           }
       val copy = project.configurations.detachedConfiguration(pom).setTransitive(false)
-      copy.resolutionStrategy.disableDependencyVerification()
+      exemptFromDependencyVerification(copy)
 
       // Resolved leniently, so that a module published without a pom is not an error. The
       // failures are logged rather than dropped, as a repository that cannot be reached would
