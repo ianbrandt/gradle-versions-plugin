@@ -2492,15 +2492,14 @@ and *Note*s are things worth knowing that need no action.
 
 ### v0.61.0
 
-In the next release, a pre-release candidate is printed as a step after the
-newest release rather than in place of it, the report is restricted to the
-bounds written in the build without a rule to apply them, a coordinate with
-one declared version and different latest versions across the aggregated
-projects is printed on one entry per latest version, where the entries were
-merged into the newest of them before, the settings configured on an
-aggregating task are applied to the entries merged from an included build, and
-the platform behind a constrained module's version is printed on the entry for
-that module:
+In v0.62.0, a pre-release candidate is printed as a step after the newest
+release rather than in place of it, the report is restricted to the bounds
+written in the build without a rule to apply them, a coordinate with one
+declared version and different latest versions across the aggregated projects
+is printed on one entry per latest version, where the entries were merged into
+the newest of them before, the settings configured on an aggregating task are
+applied to the entries merged from an included build, and the platform behind
+a constrained module's version is printed on the entry for that module:
 
 > [!IMPORTANT]
 > - A row's `available` version is now the newest release, and a newer
