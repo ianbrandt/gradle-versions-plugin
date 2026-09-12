@@ -100,6 +100,11 @@ class Resolver internal constructor(
 
   private var projectUrls = ConcurrentHashMap<ModuleVersionIdentifier, ProjectUrl>()
 
+  // One comparator for the resolver, where the configurations of a project resolve concurrently:
+  // the parser behind it caches every version string it reads in a ConcurrentHashMap, so it is
+  // shared rather than rebuilt, as the declared bound's own parser is.
+  private val versionComparator = VersionMapping.versionComparator()
+
   // Every candidate a dynamic query's component-selection walk reached, as `group:name:version`,
   // deduped in the order they arrived. Selections run concurrently, so both the set and each drain
   // of it are synchronized.
@@ -602,10 +607,7 @@ class Resolver internal constructor(
               val candidate = current.candidate
               val key = Coordinate.Key(candidate.group, candidate.module)
               preReleases.merge(key, candidate.version) { seen, found ->
-                // Built here rather than held on the resolver, which resolves the configurations of
-                // one project concurrently, and reached only where two candidates of one module
-                // compete rather than once per candidate.
-                if (VersionMapping.versionComparator().compare(seen, found) >= 0) seen else found
+                if (versionComparator.compare(seen, found) >= 0) seen else found
               }
               current.reject("Pre-release rejected by rejectPreReleases")
             }
