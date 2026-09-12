@@ -369,10 +369,14 @@ dependencyUpdates`.
 Where more than one is set, the command line option is the one that applies,
 ahead of a system property and of what is configured in the build.
 
-An option applies within the build it is invoked in. Where a report merges an
-[included build](#composite-builds), that build's rows are resolved with its own
-configuration, since the option is not passed to the included build. A system
-property is, being set for the whole JVM.
+An option applies within the build it is invoked in, where a system property,
+being set for the whole JVM, reaches an included build as well. So where a
+report merges an [included build](#composite-builds), an option that governs
+what is resolved, `--revision`, `--[no-]check-constraints`,
+`--[no-]check-build-environment-constraints` and `--[no-]reject-out-of-bounds`,
+changes only the rows resolved by the build it was passed to. The rest apply to
+the whole report, the merged rows included (see [Shared task
+settings](#shared-task-settings)).
 
 #### What the report checks
 
@@ -1487,7 +1491,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "23.0",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1499,7 +1504,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "7.0.0",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1511,7 +1517,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "4.2.3",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1523,7 +1530,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "1.40.0",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1535,7 +1543,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "6.3.1",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    },
    {
@@ -1547,7 +1556,8 @@ Alternatively, the report may be output to a structured file.
     "available": {
      "release": null,
      "milestone": "4.1.0",
-     "integration": null
+     "integration": null,
+     "preRelease": null
     }
    }
   ]
@@ -1867,7 +1877,10 @@ passed as the closure argument.
 > cover the underlying rules.
 
 For example, if you wanted to create an html table for the upgradable
-dependencies, you could use:
+dependencies, you could use the following. Where an entry's only newer candidate
+is a pre-release, no version is filled in at the revision level, so the last
+fallback is `preRelease` (see [Filtering unstable
+versions](#filtering-unstable-versions)):
 
 <details open>
 <summary>Kotlin</summary>
@@ -1886,10 +1899,12 @@ tasks.named<DependencyUpdatesTask>("dependencyUpdates") {
         appendLine("  </thead>")
         appendLine("  <tbody>")
         updatable.forEach { dependency ->
+          val available = dependency.available
+          val latest = available.release ?: available.milestone ?: available.preRelease
           appendLine(
             "    <tr><td>${dependency.group}</td><td>${dependency.name}</td>" +
               "<td>${dependency.version}</td>" +
-              "<td>${dependency.available.release ?: dependency.available.milestone}</td></tr>"
+              "<td>$latest</td></tr>"
           )
         }
         appendLine("  </tbody>")
@@ -1918,9 +1933,11 @@ tasks.named("dependencyUpdates").configure {
       table.append("  </thead>\n")
       table.append("  <tbody>\n")
       updatable.each { dependency ->
+        def available = dependency.available
+        def latest = available.release ?: available.milestone ?: available.preRelease
         table.append("    <tr><td>${dependency.group}</td><td>${dependency.name}</td>")
         table.append("<td>${dependency.version}</td>")
-        table.append("<td>${dependency.available.release ?: dependency.available.milestone}</td></tr>\n")
+        table.append("<td>${latest}</td></tr>\n")
       }
       table.append("  </tbody>\n")
       table.append("</table>")
@@ -2480,24 +2497,48 @@ newest release rather than in place of it, the report is held to the bounds
 written in the build without a rule written for it, a coordinate with one
 declared version and different latest versions across the aggregated projects
 is shown on one entry per latest version, where the entries were merged into
-the newest of them before, and an aggregating report applies its settings to
-the entries merged from an included build:
+the newest of them before, an aggregating report applies its settings to the
+entries merged from an included build, and the platform behind a constrained
+module's version is shown on that module's own entry:
 
 > [!IMPORTANT]
 > - A row's `available` version is now the newest release, and a newer
 >   pre-release is carried beside it in `available.preRelease`, where the
 >   pre-release was the `available` version before. A plain text row prints both,
->   as `[2.4.0 -> 2.4.10 -> 2.4.20-beta1]`. A tool that reads `available.release`,
->   `available.milestone` or `available.integration` gets the newest release
->   rather than the pre-release, and for a dependency whose only newer candidate
->   is a pre-release it gets the version in use. Set `rejectPreReleases = true`
->   to leave the pre-release step out altogether, or pass
->   `--reject-pre-releases` for a single run (see [Filtering unstable
+>   as `[2.4.0 -> 2.4.10 -> 2.4.20-beta1]`. Reading `available.release`,
+>   `available.milestone` or `available.integration` yields the newest release
+>   rather than the pre-release, and yields null where the only newer candidate
+>   is a pre-release, since no newer release was found. A tool that prints one
+>   version for the row falls back to `available.preRelease` after those three.
+>   Set `rejectPreReleases = true` to leave the pre-release step out altogether,
+>   or pass `--reject-pre-releases` for a single run (see [Filtering unstable
 >   versions](#filtering-unstable-versions)).
-> - `VersionAvailable` takes a fourth `preRelease` argument. Every constructor
->   arity the last release shipped is still callable, so Java and Groovy callers
->   are unaffected, but Kotlin code that constructs one with named or default
->   arguments has to be recompiled.
+> - An attribution line reading `constrained by the platform :platform` can now
+>   be printed under an entry, showing the platform project or BOM behind the
+>   version. It does not depend on `checkConstraints`, and it is printed under
+>   an up to date entry as well as an outdated one, so a tool that parses the
+>   plain text report line by line has to skip it, as it already does for the
+>   other attribution lines (see [Report format](#report-format)). The same
+>   names appear in the JSON and XML reports, in `constrainedBy` (see
+>   [Constraints](#constraints)).
+
+> [!TIP]
+> - The `isNonStable` recipe formerly recommended here can be dropped, along with
+>   the `rejectVersionIf` clause that called it. The built-in check matches
+>   pre-release markers rather than a stable pattern, so a qualifier not in its
+>   list, such as `13.4.0.jre11`, stays in the report. A convention not in the
+>   marker list, such as graphql-java's `-nf-` builds, is added to the check
+>   with `preReleaseVersionIf`, so the property and its option govern it too,
+>   and it is off wherever the property is.
+> - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
+>   bound is now applied by `rejectOutOfBounds`. A build that needs an exception
+>   for a module it bounds exempts it with `exemptFromBuiltInChecksIf` (see
+>   [Filtering unstable versions](#filtering-unstable-versions)). The member is
+>   deprecated and will be removed in a later release; a warning is printed once
+>   per project when a rule reads it, and a Kotlin DSL build that treats
+>   compiler warnings as errors has to drop the clause before upgrading. With
+>   the clause still in a rule, the same candidates are rejected under
+>   `--no-reject-out-of-bounds` as without it.
 
 > [!NOTE]
 > - A `rejectVersionIf` filter is now applied to a pre-release candidate before
@@ -2538,26 +2579,6 @@ the entries merged from an included build:
 >   included build's entries, where a Kotlin rule calls a function declared in
 >   the same build script. Move the function into a compiled class, in `buildSrc`
 >   or an included build, to keep the entry. A Groovy build is unaffected.
-
-> [!TIP]
-> - The `isNonStable` recipe formerly recommended here can be dropped, along with
->   the `rejectVersionIf` clause that called it. The built-in check matches
->   pre-release markers rather than a stable pattern, so a qualifier not in its
->   list, such as `13.4.0.jre11`, stays in the report. A convention not in the
->   marker list, such as graphql-java's `-nf-` builds, is added to the check
->   with `preReleaseVersionIf`, so the property and its option govern it too,
->   and it is off wherever the property is.
-> - Drop `!satisfiesDeclaredBound` from a `rejectVersionIf` rule, since the
->   bound is now applied by `rejectOutOfBounds`. A build that needs an exception
->   for a module it bounds exempts it with `exemptFromBuiltInChecksIf` (see
->   [Filtering unstable versions](#filtering-unstable-versions)). The member is
->   deprecated and will be removed in a later release; a warning is printed once
->   per project when a rule reads it, and a Kotlin DSL build that treats
->   compiler warnings as errors has to drop the clause before upgrading. With
->   the clause still in a rule, the same candidates are rejected under
->   `--no-reject-out-of-bounds` as without it.
-
-> [!NOTE]
 > - Newer pre-releases are still reported when the current version is itself a
 >   pre-release.
 > - A module with only pre-releases published, and the declared version no
@@ -2581,6 +2602,13 @@ the entries merged from an included build:
 >   rules shows a version no build resolved. The version a build accepts came
 >   through that build's full status-aware verdict, and a version below it did
 >   not.
+> - A fourth `preRelease` argument was added to `VersionAvailable`, and a
+>   further `constrainedBy` one to `Dependency`, `DependencyOutdated`,
+>   `DependencyLatest` and `DependencyUnresolved`. Every constructor arity and
+>   every `copy` the last release shipped is still callable, so Java and Groovy
+>   callers are unaffected. Kotlin code that constructs one of these while leaving an
+>   argument to its default has to be recompiled. A formatter that only reads
+>   the report, as the documented ones do, needs nothing.
 
 ### v0.60.0
 
