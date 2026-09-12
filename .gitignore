@@ -67,6 +67,9 @@ gradle-app.setting
 # Cache of project
 .gradletasknamecache
 
+# Session directory of the Kotlin Gradle plugin
+.kotlin/
+
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
 
