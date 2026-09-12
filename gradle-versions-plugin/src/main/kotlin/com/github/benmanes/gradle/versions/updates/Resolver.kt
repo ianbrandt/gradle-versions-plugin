@@ -526,11 +526,9 @@ class Resolver internal constructor(
             selection.reject("Component status ${metadata?.status} rejected by revision $revision")
           }
         }
-        rules.all { selectionAction ->
-          if (ComponentSelection::class.members.any { it.name == "getMetadata" }) {
-            revisionFilter(selectionAction)
-          }
-        }
+        // Every supported Gradle publishes ComponentSelection.getMetadata, which the guard here
+        // reflected over the type's whole member list once per candidate to establish.
+        rules.all { selectionAction -> revisionFilter(selectionAction) }
       }
     }
   }
